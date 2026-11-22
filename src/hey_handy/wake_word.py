@@ -51,20 +51,20 @@ def resample_mono(samples: np.ndarray, src_rate: int, dst_rate: int = TARGET_SAM
 
 def normalize_speech_chunk(
     samples: np.ndarray,
-    ema_peak: float,
-    noise_floor: float = 0.0025,
-    target_peak: float = 0.35,
-    max_gain: float = 16.0,
+    ema_rms: float,
+    noise_floor: float = 0.0010,
+    target_rms: float = 0.14,
+    max_gain: float = 26.0,
 ) -> Tuple[np.ndarray, float]:
-    """Boost quiet microphone inputs smoothly while keeping pure silence untouched."""
+    """Boost quiet/soft speech using fast RMS AGC while keeping silence untouched."""
     arr = np.asarray(samples, dtype=np.float32).reshape(-1)
     if arr.size == 0:
-        return arr, ema_peak
-    chunk_peak = float(np.max(np.abs(arr)))
-    new_ema = max(chunk_peak, ema_peak * 0.90)
+        return arr, ema_rms
+    chunk_rms = float(np.sqrt(np.mean(arr * arr)))
+    new_ema = max(chunk_rms, ema_rms * 0.72)
     if new_ema < noise_floor:
         return arr, new_ema
-    gain = min(max_gain, target_peak / max(new_ema, 1e-4))
+    gain = min(max_gain, target_rms / max(new_ema, 1e-4))
     if gain <= 1.05:
         return arr, new_ema
     boosted = np.tanh(arr * gain).astype(np.float32)
@@ -183,9 +183,9 @@ def _load_token_vocab(tokens_path: Path) -> set[str]:
 def sensitivity_to_kws_params(sensitivity: float) -> Tuple[float, float]:
     """Map user sensitivity (0.1..1.0) to (boosting_score, trigger_threshold)."""
     s = max(0.1, min(1.0, float(sensitivity)))
-    boost = round(1.4 + s * 1.3, 2)
-    threshold = round(0.28 - s * 0.18, 2)
-    return boost, max(0.08, min(0.32, threshold))
+    boost = round(1.8 + s * 1.4, 2)
+    threshold = round(0.24 - s * 0.16, 2)
+    return boost, max(0.07, min(0.28, threshold))
 
 
 def build_keywords_file(
@@ -308,7 +308,7 @@ class WakeWordListener:
         base = " ".join(self.phrase.strip().upper().split()) or "HEY HANDY"
         phrases = [base]
         if base == "HEY HANDY":
-            phrases.extend(["HEY HAND E", "HEY HENDY", "EY HANDY", "HEY ANDY"])
+            phrases.extend(["HEY HAND E", "HEY HENDY", "EY HANDY", "HEY ANDY", "HAY HANDY"])
         return phrases
 
     def _run_loop(self) -> None:

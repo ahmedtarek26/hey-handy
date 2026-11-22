@@ -44,6 +44,17 @@ def test_qt_and_cv_imports_and_ui_offscreen() -> None:
     )
     win.show()
     app.processEvents()
+    assert win._two_column_active is True
+
+    win.apply_window_mode("compact")
+    app.processEvents()
+    assert win.width() == 500
+    assert win._two_column_active is False
+
+    win.apply_window_mode("standard")
+    app.processEvents()
+    assert win.width() == 980
+    assert win._two_column_active is True
 
     icon = make_tray_icon("armed")
     assert not icon.isNull()

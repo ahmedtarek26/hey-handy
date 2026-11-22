@@ -78,9 +78,9 @@ def get_data_dir() -> Path:
 class HeyHandyConfig:
     """User-configurable settings for wake word, gestures, and active tab control."""
 
-    schema_version: int = 2
+    schema_version: int = 3
     wake_phrase: str = "HEY HANDY"
-    wake_sensitivity: float = 0.55  # 0.1 (strict) .. 1.0 (sensitive)
+    wake_sensitivity: float = 0.72  # 0.1 (strict) .. 1.0 (soft voice)
     wake_window_s: float = 8.0
     post_action_grace_s: float = 3.0
     action_cooldown_s: float = 1.4
@@ -99,11 +99,14 @@ class HeyHandyConfig:
     ws_port: int = 17421
     camera_index: int = 0
     mic_device: Optional[int] = None
+    window_width: int = 980
+    window_height: int = 880
+    window_mode: str = "standard"  # "compact", "standard", or "full"
     gesture_map: Dict[str, str] = field(default_factory=lambda: dict(DEFAULT_GESTURE_MAP))
 
     def normalized(self) -> "HeyHandyConfig":
         """Clamp numerical fields and sanitize gesture mappings."""
-        self.schema_version = 2
+        self.schema_version = 3
         self.wake_phrase = (self.wake_phrase or "HEY HANDY").strip().upper()
         self.wake_sensitivity = max(0.1, min(1.0, float(self.wake_sensitivity)))
         self.wake_window_s = max(2.0, min(60.0, float(self.wake_window_s)))
@@ -118,6 +121,10 @@ class HeyHandyConfig:
         self.min_hand_span = max(0.03, min(0.30, float(self.min_hand_span)))
         self.ws_port = max(1024, min(65535, int(self.ws_port)))
         self.camera_index = max(0, int(self.camera_index))
+        self.window_width = max(420, min(3840, int(self.window_width)))
+        self.window_height = max(460, min(2160, int(self.window_height)))
+        if self.window_mode not in ("compact", "standard", "full"):
+            self.window_mode = "standard"
 
         merged = dict(DEFAULT_GESTURE_MAP)
         for gesture, action in (self.gesture_map or {}).items():
@@ -136,7 +143,8 @@ class HeyHandyConfig:
             raw = json.loads(target.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 return cls().normalized()
-            if int(raw.get("schema_version", 1)) < 2:
+            ver = int(raw.get("schema_version", 1))
+            if ver < 2:
                 # Upgrade overly strict v1 vision thresholds that missed dim webcam hands.
                 if raw.get("min_confidence") == 0.58:
                     raw["min_confidence"] = 0.42
@@ -144,6 +152,10 @@ class HeyHandyConfig:
                     raw["stability_frames"] = 3
                 if raw.get("min_hand_span") == 0.08:
                     raw["min_hand_span"] = 0.06
+            if ver < 3:
+                # Upgrade default wake sensitivity so soft conversational speech triggers effortlessly.
+                if raw.get("wake_sensitivity") == 0.55:
+                    raw["wake_sensitivity"] = 0.72
             valid_fields = {f for f in cls.__dataclass_fields__}
             filtered = {k: v for k, v in raw.items() if k in valid_fields}
             return cls(**filtered).normalized()

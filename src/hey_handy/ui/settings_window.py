@@ -1,10 +1,10 @@
-"""Settings, browser extension setup, and live camera/mic test window for Hey Handy."""
+"""Modern responsive Settings, Mic/Camera Tester, and Window-Mode UI for Hey Handy."""
 
 from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -22,39 +22,118 @@ HAND_CONNECTIONS = (
     (13, 17), (0, 17), (17, 18), (18, 19), (19, 20),
 )
 
+GESTURE_HINTS: Dict[str, str] = {
+    "Open_Palm": "Show 5 open fingers",
+    "Closed_Fist": "Hold a closed fist",
+    "Victory": "Two fingers (peace sign)",
+    "Thumb_Up": "Hold to raise volume",
+    "Thumb_Down": "Hold to lower volume",
+    "Pointing_Up": "Index finger straight up",
+}
+
 DARK_STYLESHEET = """
 QWidget {
-    background-color: #0e1117;
+    background-color: #0b0e14;
     color: #e2e8f0;
     font-size: 13px;
 }
 QLabel, QCheckBox {
     background-color: transparent;
 }
-QGroupBox {
-    background-color: #161b24;
-    border: 1px solid #262f3f;
-    border-radius: 10px;
-    margin-top: 10px;
-    padding: 14px 12px 12px 12px;
-    font-weight: 600;
+QScrollArea {
+    border: none;
+    background-color: transparent;
 }
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
+QScrollBar:vertical {
+    background: #0b0e14;
+    width: 8px;
+    margin: 2px;
+}
+QScrollBar::handle:vertical {
+    background: #273244;
+    border-radius: 4px;
+    min-height: 24px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+QFrame#headerBar {
+    background-color: #111621;
+    border-bottom: 1px solid #1f2937;
+}
+QFrame#footerBar {
+    background-color: #111621;
+    border-top: 1px solid #1f2937;
+}
+QFrame#card {
+    background-color: #131924;
+    border: 1px solid #232d3f;
+    border-radius: 12px;
+}
+QFrame#gestureRow {
+    background-color: #0e131c;
+    border: 1px solid #1f2937;
+    border-radius: 9px;
+}
+QFrame#gestureRow[active="true"] {
+    background-color: #102a2a;
+    border: 1px solid #2dd4bf;
+}
+QLabel#cardTitle {
+    color: #2dd4bf;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+QLabel#brandTitle {
+    color: #f8fafc;
+    font-size: 16px;
+    font-weight: 700;
+}
+QLabel#statusPill {
+    background-color: #172030;
+    border: 1px solid #283548;
+    border-radius: 12px;
+    padding: 4px 11px;
+    font-size: 12px;
+    font-weight: 600;
     color: #2dd4bf;
 }
+QLabel#statusPill[armed="true"] {
+    background-color: #0d2b22;
+    border-color: #22c55e;
+    color: #4ade80;
+}
+QLabel#valuePill {
+    background-color: #0d121b;
+    border: 1px solid #263245;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #cbd5e1;
+    min-width: 68px;
+}
+QLabel#muted {
+    color: #94a3b8;
+    font-size: 12px;
+}
 QPushButton {
-    background-color: #1f2937;
-    border: 1px solid #334155;
-    border-radius: 7px;
+    background-color: #1a2232;
+    border: 1px solid #2e3b52;
+    border-radius: 8px;
     padding: 6px 12px;
     color: #f8fafc;
+    font-weight: 500;
 }
 QPushButton:hover {
-    background-color: #2b384a;
+    background-color: #243045;
     border-color: #2dd4bf;
+}
+QPushButton:checked {
+    background-color: #114441;
+    border-color: #2dd4bf;
+    color: #5eead4;
 }
 QPushButton#primaryBtn {
     background-color: #0f766e;
@@ -64,16 +143,60 @@ QPushButton#primaryBtn {
 QPushButton#primaryBtn:hover {
     background-color: #0d9488;
 }
-QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
-    background-color: #0f141d;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    padding: 5px 8px;
+QPushButton#segBtn {
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 7px;
+}
+QComboBox, QLineEdit, QSpinBox {
+    background-color: #0d121b;
+    border: 1px solid #2b384d;
+    border-radius: 7px;
+    padding: 5px 9px;
     color: #f8fafc;
 }
+QSpinBox::up-button, QSpinBox::down-button {
+    background-color: #1f2937;
+    border-left: 1px solid #334155;
+    width: 18px;
+}
+QSpinBox::up-arrow {
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid #cbd5e1;
+}
+QSpinBox::down-arrow {
+    width: 0px;
+    height: 0px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #cbd5e1;
+}
+QComboBox:hover, QLineEdit:hover, QSpinBox:hover {
+    border-color: #3e5270;
+}
+QSlider::groove:horizontal {
+    height: 6px;
+    background: #1f2937;
+    border-radius: 3px;
+}
+QSlider::sub-page:horizontal {
+    background: #14b8a6;
+    border-radius: 3px;
+}
+QSlider::handle:horizontal {
+    background: #f8fafc;
+    border: 2px solid #2dd4bf;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 8px;
+}
 QProgressBar {
-    background-color: #0f141d;
-    border: 1px solid #334155;
+    background-color: #0d121b;
+    border: 1px solid #283548;
     border-radius: 5px;
     height: 10px;
     text-align: center;
@@ -86,11 +209,11 @@ QCheckBox {
     spacing: 8px;
 }
 QCheckBox::indicator {
-    width: 15px;
-    height: 15px;
+    width: 16px;
+    height: 16px;
     border-radius: 4px;
     border: 1px solid #475569;
-    background-color: #0f141d;
+    background-color: #0d121b;
 }
 QCheckBox::indicator:hover {
     border-color: #2dd4bf;
@@ -99,41 +222,31 @@ QCheckBox::indicator:checked {
     background-color: #14b8a6;
     border-color: #2dd4bf;
 }
-QSpinBox::up-button, QSpinBox::down-button,
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
-    background-color: #1f2937;
-    border-left: 1px solid #334155;
-    width: 18px;
-}
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-    width: 0px;
-    height: 0px;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-bottom: 5px solid #cbd5e1;
-}
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-    width: 0px;
-    height: 0px;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #cbd5e1;
-}
-QLabel#muted {
-    color: #94a3b8;
-    font-size: 12px;
-}
 """
 
 
+def _make_card(title: str) -> Tuple[QtWidgets.QFrame, QtWidgets.QVBoxLayout]:
+    card = QtWidgets.QFrame()
+    card.setObjectName("card")
+    lay = QtWidgets.QVBoxLayout(card)
+    lay.setContentsMargins(14, 12, 14, 14)
+    lay.setSpacing(10)
+    lbl = QtWidgets.QLabel(title)
+    lbl.setObjectName("cardTitle")
+    lay.addWidget(lbl)
+    return card, lay
+
+
 class SettingsWindow(QtWidgets.QMainWindow):
-    """Configuration, mic meter & live gesture verification UI."""
+    """Responsive Configuration, Mic/Camera Tester, and Window-Preset UI."""
 
     configSaved = QtCore.Signal(object)  # HeyHandyConfig
     wakeClicked = QtCore.Signal()
     actionTestClicked = QtCore.Signal(str)
     previewToggled = QtCore.Signal(bool)
     modelsReady = QtCore.Signal()
+
+    COMPACT_BREAKPOINT = 860
 
     def __init__(
         self,
@@ -146,43 +259,128 @@ class SettingsWindow(QtWidgets.QMainWindow):
         self._config = config
         self._minimize_to_tray = minimize_to_tray
         self._gesture_combos: Dict[str, QtWidgets.QComboBox] = {}
+        self._gesture_rows: Dict[str, QtWidgets.QFrame] = {}
+        self._two_column_active: Optional[bool] = None
+        self._window_mode = config.window_mode
 
         self.setWindowTitle("Hey Handy — Gestures & Active Media Control")
-        self.resize(980, 740)
+        self.setMinimumSize(420, 460)
         self.setStyleSheet(DARK_STYLESHEET)
 
         central = QtWidgets.QWidget()
         self.setCentralWidget(central)
-        root = QtWidgets.QHBoxLayout(central)
-        root.setContentsMargins(16, 16, 16, 16)
-        root.setSpacing(14)
+        outer = QtWidgets.QVBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        left = QtWidgets.QVBoxLayout()
-        left.setSpacing(12)
-        right = QtWidgets.QVBoxLayout()
-        right.setSpacing(12)
-        root.addLayout(left, 1)
-        root.addLayout(right, 1)
+        # --- Top Header Bar ---
+        header = QtWidgets.QFrame()
+        header.setObjectName("headerBar")
+        header_lay = QtWidgets.QHBoxLayout(header)
+        header_lay.setContentsMargins(16, 10, 16, 10)
+        header_lay.setSpacing(10)
 
-        # --- Left Top: Live Status & Quick Controls ---
-        status_group = QtWidgets.QGroupBox("Live Status && Quick Test")
-        status_lay = QtWidgets.QVBoxLayout(status_group)
-        status_lay.setSpacing(7)
+        brand = QtWidgets.QLabel("✋ Hey Handy")
+        brand.setObjectName("brandTitle")
+        header_lay.addWidget(brand)
 
-        self._state_label = QtWidgets.QLabel("State: Sleeping (say 'Hey Handy')")
-        self._state_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #2dd4bf;")
-        status_lay.addWidget(self._state_label)
+        self._state_pill = QtWidgets.QLabel("● Sleeping — say 'Hey Handy'")
+        self._state_pill.setObjectName("statusPill")
+        self._state_pill.setProperty("armed", "false")
+        header_lay.addWidget(self._state_pill)
+        header_lay.addStretch(1)
 
-        self._last_action_label = QtWidgets.QLabel("Last action: —")
-        self._last_action_label.setObjectName("muted")
-        status_lay.addWidget(self._last_action_label)
+        self._compact_btn = QtWidgets.QPushButton("Small")
+        self._compact_btn.setObjectName("segBtn")
+        self._compact_btn.setCheckable(True)
+        self._compact_btn.setToolTip("Switch to compact single-column window (500×680)")
+        self._compact_btn.clicked.connect(lambda: self.apply_window_mode("compact"))
+
+        self._standard_btn = QtWidgets.QPushButton("Standard")
+        self._standard_btn.setObjectName("segBtn")
+        self._standard_btn.setCheckable(True)
+        self._standard_btn.setToolTip("Switch to standard two-column window (980×760)")
+        self._standard_btn.clicked.connect(lambda: self.apply_window_mode("standard"))
+
+        self._full_btn = QtWidgets.QPushButton("Full")
+        self._full_btn.setObjectName("segBtn")
+        self._full_btn.setCheckable(True)
+        self._full_btn.setToolTip("Expand to full screen/maximized window")
+        self._full_btn.clicked.connect(lambda: self.apply_window_mode("full"))
+
+        for b in (self._compact_btn, self._standard_btn, self._full_btn):
+            header_lay.addWidget(b)
+
+        if minimize_to_tray:
+            hide_btn = QtWidgets.QPushButton("Tray")
+            hide_btn.setObjectName("segBtn")
+            hide_btn.setToolTip("Minimize to system tray (keeps listening in background)")
+            hide_btn.clicked.connect(self.hide)
+            header_lay.addWidget(hide_btn)
+
+        outer.addWidget(header)
+
+        # --- Scrollable Responsive Body ---
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        outer.addWidget(scroll, 1)
+
+        body = QtWidgets.QWidget()
+        scroll.setWidget(body)
+        self._grid = QtWidgets.QGridLayout(body)
+        self._grid.setContentsMargins(14, 14, 14, 14)
+        self._grid.setSpacing(12)
+
+        # Build the 4 cards
+        self._status_card = self._build_status_card(models_ready)
+        self._camera_card = self._build_camera_card()
+        self._settings_card = self._build_settings_card()
+        self._mapping_card = self._build_mapping_card()
+
+        # --- Footer Bar ---
+        footer = QtWidgets.QFrame()
+        footer.setObjectName("footerBar")
+        footer_lay = QtWidgets.QHBoxLayout(footer)
+        footer_lay.setContentsMargins(16, 10, 16, 10)
+        footer_lay.setSpacing(10)
+
+        self._footer_hint = QtWidgets.QLabel(
+            "Tip: Say 'Hey Handy' softly — camera stays off until you wake it."
+        )
+        self._footer_hint.setObjectName("muted")
+        footer_lay.addWidget(self._footer_hint, 1)
+
+        reset_btn = QtWidgets.QPushButton("Reset Defaults")
+        reset_btn.clicked.connect(self._reset_defaults)
+        footer_lay.addWidget(reset_btn)
+
+        self._save_btn = QtWidgets.QPushButton("Save && Apply")
+        self._save_btn.setObjectName("primaryBtn")
+        self._save_btn.clicked.connect(self._save)
+        footer_lay.addWidget(self._save_btn)
+
+        outer.addWidget(footer)
+
+        self._save_feedback_timer = QtCore.QTimer(self)
+        self._save_feedback_timer.setSingleShot(True)
+        self._save_feedback_timer.timeout.connect(lambda: self._save_btn.setText("Save && Apply"))
+
+        self._apply_initial_geometry()
+
+    def _build_status_card(self, models_ready: bool) -> QtWidgets.QFrame:
+        card, lay = _make_card("LIVE STATUS & QUICK CONTROLS")
+
+        self._last_action_label = QtWidgets.QLabel("Last action: Ready (say 'Hey Handy' or click below)")
+        self._last_action_label.setWordWrap(True)
+        lay.addWidget(self._last_action_label)
 
         self._ext_label = QtWidgets.QLabel(
-            "Browser Extension: Not connected (desktop MPRIS + Hyprland fallback active)"
+            "Target: Desktop MPRIS + Hyprland active (load extension/ for per-tab HUD)"
         )
         self._ext_label.setWordWrap(True)
         self._ext_label.setObjectName("muted")
-        status_lay.addWidget(self._ext_label)
+        lay.addWidget(self._ext_label)
 
         mic_row = QtWidgets.QHBoxLayout()
         self._mic_status_label = QtWidgets.QLabel("Mic level:")
@@ -193,21 +391,22 @@ class SettingsWindow(QtWidgets.QMainWindow):
         self._mic_bar.setValue(0)
         mic_row.addWidget(self._mic_status_label)
         mic_row.addWidget(self._mic_bar, 1)
-        status_lay.addLayout(mic_row)
+        lay.addLayout(mic_row)
 
         self._model_label = QtWidgets.QLabel(
-            "Models: Ready (offline)" if models_ready else "Models: Not downloaded yet"
+            "Models: Offline Ready (MediaPipe + sherpa-onnx)" if models_ready else "Models: Not downloaded yet"
         )
         self._model_label.setObjectName("muted")
-        status_lay.addWidget(self._model_label)
+        lay.addWidget(self._model_label)
 
         btn_row = QtWidgets.QHBoxLayout()
+        btn_row.setSpacing(8)
         self._wake_btn = QtWidgets.QPushButton("Simulate 'Hey Handy'")
         self._wake_btn.setObjectName("primaryBtn")
         self._wake_btn.clicked.connect(self.wakeClicked)
-        btn_row.addWidget(self._wake_btn)
+        btn_row.addWidget(self._wake_btn, 1)
 
-        self._ext_btn = QtWidgets.QPushButton("Open Extension Folder")
+        self._ext_btn = QtWidgets.QPushButton("Extension Folder")
         self._ext_btn.clicked.connect(self._open_extension_folder)
         btn_row.addWidget(self._ext_btn)
 
@@ -217,169 +416,291 @@ class SettingsWindow(QtWidgets.QMainWindow):
             btn_row.addWidget(self._dl_btn)
         else:
             self._dl_btn = None
-        status_lay.addLayout(btn_row)
+        lay.addLayout(btn_row)
 
-        quick_row = QtWidgets.QHBoxLayout()
-        for act, title in (
-            ("play_pause", "Play/Pause"),
-            ("pause", "Pause"),
-            ("fullscreen", "Fullscreen"),
-            ("volume_down", "Vol -"),
-            ("volume_up", "Vol +"),
-        ):
+        quick_grid = QtWidgets.QGridLayout()
+        quick_grid.setSpacing(6)
+        buttons = (
+            ("play_pause", "⏯ Play / Pause", 0, 0),
+            ("pause", "⏸ Pause", 0, 1),
+            ("fullscreen", "⛶ Fullscreen", 0, 2),
+            ("volume_down", "🔉 Vol -", 1, 0),
+            ("volume_up", "🔊 Vol +", 1, 1),
+            ("mute", "🔇 Mute", 1, 2),
+        )
+        for act, title, r, c in buttons:
             b = QtWidgets.QPushButton(title)
+            b.setFixedHeight(32)
             b.clicked.connect(lambda _=False, a=act: self.actionTestClicked.emit(a))
-            quick_row.addWidget(b)
-        status_lay.addLayout(quick_row)
-        left.addWidget(status_group)
+            quick_grid.addWidget(b, r, c)
+        lay.addLayout(quick_grid)
+        lay.addStretch(1)
+        return card
 
-        # --- Left Bottom: Optional Camera Test Preview ---
-        cam_group = QtWidgets.QGroupBox("Camera && Gesture Tester")
-        cam_lay = QtWidgets.QVBoxLayout(cam_group)
+    def _build_camera_card(self) -> QtWidgets.QFrame:
+        card, lay = _make_card("CAMERA & GESTURE TESTER")
         self._preview_toggle = QtWidgets.QCheckBox(
             "Enable live camera test preview (runs gestures live while checked)"
         )
         self._preview_toggle.toggled.connect(self._on_preview_toggled)
-        cam_lay.addWidget(self._preview_toggle)
+        lay.addWidget(self._preview_toggle)
 
         self._preview_view = QtWidgets.QLabel("Camera stays off until you say 'Hey Handy' or enable preview.")
         self._preview_view.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self._preview_view.setMinimumHeight(250)
-        self._preview_view.setStyleSheet(
-            "background-color: #090b10; border: 1px dashed #2d3748; border-radius: 8px; color: #64748b;"
+        self._preview_view.setWordWrap(True)
+        self._preview_view.setMinimumHeight(210)
+        self._preview_view.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
         )
-        cam_lay.addWidget(self._preview_view, 1)
+        self._preview_view.setStyleSheet(
+            "background-color: #080a0f; border: 1px dashed #263143; border-radius: 9px; color: #64748b; padding: 12px;"
+        )
+        lay.addWidget(self._preview_view, 1)
 
         self._detected_label = QtWidgets.QLabel("Detected: —")
         self._detected_label.setObjectName("muted")
-        cam_lay.addWidget(self._detected_label)
-        left.addWidget(cam_group, 1)
+        lay.addWidget(self._detected_label)
+        return card
 
-        # --- Right Top: Wake Word & Eating Safety ---
-        wake_group = QtWidgets.QGroupBox("Wake Word && Eating Safety")
-        form = QtWidgets.QFormLayout(wake_group)
+    def _make_slider_row(
+        self,
+        minimum: int,
+        maximum: int,
+        value: int,
+        formatter,
+    ) -> Tuple[QtWidgets.QWidget, QtWidgets.QSlider, QtWidgets.QLabel]:
+        row = QtWidgets.QWidget()
+        row.setStyleSheet("background: transparent;")
+        h = QtWidgets.QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+        slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        slider.setRange(minimum, maximum)
+        slider.setValue(value)
+        pill = QtWidgets.QLabel(formatter(value))
+        pill.setObjectName("valuePill")
+        pill.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        slider.valueChanged.connect(lambda v: pill.setText(formatter(v)))
+        h.addWidget(slider, 1)
+        h.addWidget(pill)
+        return row, slider, pill
+
+    def _build_settings_card(self) -> QtWidgets.QFrame:
+        card, lay = _make_card("WAKE WORD & EATING SAFETY")
+        form = QtWidgets.QFormLayout()
         form.setSpacing(8)
+        form.setLabelAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
 
-        self._phrase_edit = QtWidgets.QLineEdit(config.wake_phrase)
+        self._phrase_edit = QtWidgets.QLineEdit(self._config.wake_phrase)
         form.addRow("Wake phrase:", self._phrase_edit)
 
         self._mic_combo = QtWidgets.QComboBox()
         self._mic_combo.addItem("Auto (best hardware mic)", None)
         for dev_idx, dev_name in list_input_devices():
             self._mic_combo.addItem(f"[{dev_idx}] {dev_name}", dev_idx)
-        m_idx = self._mic_combo.findData(config.mic_device)
+        m_idx = self._mic_combo.findData(self._config.mic_device)
         if m_idx >= 0:
             self._mic_combo.setCurrentIndex(m_idx)
         form.addRow("Microphone:", self._mic_combo)
 
-        self._sensitivity_spin = QtWidgets.QDoubleSpinBox()
-        self._sensitivity_spin.setRange(0.10, 1.00)
-        self._sensitivity_spin.setSingleStep(0.05)
-        self._sensitivity_spin.setValue(config.wake_sensitivity)
-        form.addRow("Wake sensitivity:", self._sensitivity_spin)
+        sens_row, self._sens_slider, _ = self._make_slider_row(
+            10, 100, round(self._config.wake_sensitivity * 100),
+            lambda v: f"{v}% (Soft)" if v >= 65 else f"{v}%",
+        )
+        form.addRow("Wake sensitivity:", sens_row)
 
-        self._wake_window_spin = QtWidgets.QDoubleSpinBox()
-        self._wake_window_spin.setRange(2.0, 60.0)
-        self._wake_window_spin.setSuffix(" s")
-        self._wake_window_spin.setValue(config.wake_window_s)
-        form.addRow("Wake window:", self._wake_window_spin)
+        win_row, self._window_slider, _ = self._make_slider_row(
+            2, 30, round(self._config.wake_window_s),
+            lambda v: f"{v} s",
+        )
+        form.addRow("Wake window:", win_row)
 
-        self._stability_spin = QtWidgets.QSpinBox()
-        self._stability_spin.setRange(2, 10)
-        self._stability_spin.setSuffix(" frames")
-        self._stability_spin.setValue(config.stability_frames)
-        form.addRow("Hold stability:", self._stability_spin)
+        stab_row, self._stability_slider, _ = self._make_slider_row(
+            2, 8, self._config.stability_frames,
+            lambda v: f"{v} frames",
+        )
+        form.addRow("Hold stability:", stab_row)
 
-        self._conf_spin = QtWidgets.QDoubleSpinBox()
-        self._conf_spin.setRange(0.30, 0.90)
-        self._conf_spin.setSingleStep(0.05)
-        self._conf_spin.setValue(config.min_confidence)
-        form.addRow("Gesture confidence:", self._conf_spin)
+        conf_row, self._conf_slider, _ = self._make_slider_row(
+            30, 85, round(self._config.min_confidence * 100),
+            lambda v: f"{v}%",
+        )
+        form.addRow("Gesture confidence:", conf_row)
 
-        self._vol_step_spin = QtWidgets.QSpinBox()
-        self._vol_step_spin.setRange(1, 25)
-        self._vol_step_spin.setSuffix(" %")
-        self._vol_step_spin.setValue(config.volume_step)
-        form.addRow("Volume step:", self._vol_step_spin)
+        vol_row, self._vol_slider, _ = self._make_slider_row(
+            2, 20, self._config.volume_step,
+            lambda v: f"{v}%",
+        )
+        form.addRow("Volume step:", vol_row)
 
         self._vol_mode_combo = QtWidgets.QComboBox()
         self._vol_mode_combo.addItem("System Volume (works everywhere)", "system")
         self._vol_mode_combo.addItem("Active Browser Tab Volume", "tab")
         self._vol_mode_combo.addItem("Active Tab + System", "both")
-        idx = self._vol_mode_combo.findData(config.volume_mode)
+        idx = self._vol_mode_combo.findData(self._config.volume_mode)
         if idx >= 0:
             self._vol_mode_combo.setCurrentIndex(idx)
         form.addRow("Volume target:", self._vol_mode_combo)
 
         self._camera_spin = QtWidgets.QSpinBox()
         self._camera_spin.setRange(0, 8)
-        self._camera_spin.setValue(config.camera_index)
+        self._camera_spin.setValue(self._config.camera_index)
         form.addRow("Webcam index:", self._camera_spin)
 
+        lay.addLayout(form)
+
         checks_lay = QtWidgets.QGridLayout()
-        self._always_on_chk = QtWidgets.QCheckBox("Always-on gestures (skip wake word)")
-        self._always_on_chk.setChecked(config.always_on_gestures)
-        self._warm_cam_chk = QtWidgets.QCheckBox("Keep camera warm (faster wake)")
-        self._warm_cam_chk.setChecked(config.keep_camera_warm)
-        self._tab_hud_chk = QtWidgets.QCheckBox("Show in-tab HUD pill")
-        self._tab_hud_chk.setChecked(config.show_tab_hud)
-        self._desk_hud_chk = QtWidgets.QCheckBox("Show desktop HUD pill")
-        self._desk_hud_chk.setChecked(config.show_desktop_hud)
+        checks_lay.setSpacing(6)
+        self._always_on_chk = QtWidgets.QCheckBox("Always-on gestures")
+        self._always_on_chk.setChecked(self._config.always_on_gestures)
+        self._warm_cam_chk = QtWidgets.QCheckBox("Keep camera warm")
+        self._warm_cam_chk.setChecked(self._config.keep_camera_warm)
+        self._tab_hud_chk = QtWidgets.QCheckBox("In-tab HUD pill")
+        self._tab_hud_chk.setChecked(self._config.show_tab_hud)
+        self._desk_hud_chk = QtWidgets.QCheckBox("Desktop HUD pill")
+        self._desk_hud_chk.setChecked(self._config.show_desktop_hud)
         self._sound_chk = QtWidgets.QCheckBox("Audio chimes")
-        self._sound_chk.setChecked(config.sound_feedback)
+        self._sound_chk.setChecked(self._config.sound_feedback)
 
         checks_lay.addWidget(self._always_on_chk, 0, 0)
         checks_lay.addWidget(self._warm_cam_chk, 0, 1)
         checks_lay.addWidget(self._tab_hud_chk, 1, 0)
         checks_lay.addWidget(self._desk_hud_chk, 1, 1)
         checks_lay.addWidget(self._sound_chk, 2, 0)
-        form.addRow(checks_lay)
-        right.addWidget(wake_group)
+        lay.addLayout(checks_lay)
+        return card
 
-        # --- Right Bottom: Gesture Mapping ---
-        map_group = QtWidgets.QGroupBox("Gesture Mapping")
-        map_form = QtWidgets.QFormLayout(map_group)
-        map_form.setSpacing(7)
+    def _build_mapping_card(self) -> QtWidgets.QFrame:
+        card, lay = _make_card("GESTURE MAPPING")
         for gesture_key, gesture_label in GESTURE_LABELS.items():
+            row = QtWidgets.QFrame()
+            row.setObjectName("gestureRow")
+            row.setProperty("active", "false")
+            r_lay = QtWidgets.QHBoxLayout(row)
+            r_lay.setContentsMargins(10, 6, 10, 6)
+            r_lay.setSpacing(10)
+
+            info = QtWidgets.QVBoxLayout()
+            info.setSpacing(1)
+            g_lbl = QtWidgets.QLabel(gesture_label)
+            g_lbl.setStyleSheet("font-weight: 600; color: #f8fafc;")
+            h_lbl = QtWidgets.QLabel(GESTURE_HINTS.get(gesture_key, ""))
+            h_lbl.setObjectName("muted")
+            info.addWidget(g_lbl)
+            info.addWidget(h_lbl)
+            r_lay.addLayout(info, 1)
+
             combo = QtWidgets.QComboBox()
+            combo.setMinimumWidth(160)
             for act in VALID_ACTIONS:
                 combo.addItem(ACTION_LABELS[act], act)
-            current = config.gesture_map.get(gesture_key, "none")
+            current = self._config.gesture_map.get(gesture_key, "none")
             c_idx = combo.findData(current)
             if c_idx >= 0:
                 combo.setCurrentIndex(c_idx)
+            r_lay.addWidget(combo)
+
             self._gesture_combos[gesture_key] = combo
-            map_form.addRow(gesture_label, combo)
-        right.addWidget(map_group)
+            self._gesture_rows[gesture_key] = row
+            lay.addWidget(row)
+        return card
 
-        save_row = QtWidgets.QHBoxLayout()
-        save_row.addStretch(1)
-        reset_btn = QtWidgets.QPushButton("Reset Defaults")
-        reset_btn.clicked.connect(self._reset_defaults)
-        save_row.addWidget(reset_btn)
+    def _apply_initial_geometry(self) -> None:
+        self.resize(self._config.window_width, self._config.window_height)
+        self._sync_mode_buttons(self._config.window_mode)
+        self._relayout_cards(self._config.window_width)
+        if self._config.window_mode == "full":
+            self.setWindowState(self.windowState() | QtCore.Qt.WindowState.WindowMaximized)
 
-        save_btn = QtWidgets.QPushButton("Save && Apply")
-        save_btn.setObjectName("primaryBtn")
-        save_btn.clicked.connect(self._save)
-        save_row.addWidget(save_btn)
-        right.addLayout(save_row)
+    def _sync_mode_buttons(self, mode: str) -> None:
+        self._compact_btn.setChecked(mode == "compact")
+        self._standard_btn.setChecked(mode == "standard")
+        self._full_btn.setChecked(mode == "full")
+
+    def apply_window_mode(self, mode: str) -> None:
+        """Switch between Small (compact), Standard, and Full window sizes."""
+        self._window_mode = mode
+        self._sync_mode_buttons(mode)
+        if mode == "full":
+            self.showMaximized()
+        else:
+            if self.isMaximized():
+                self.showNormal()
+            if mode == "compact":
+                self.resize(500, 680)
+            else:
+                self.resize(980, 880)
+        self._relayout_cards(self.width())
+
+    def _relayout_cards(self, width: int) -> None:
+        two_col = width >= self.COMPACT_BREAKPOINT
+        if self._two_column_active is two_col:
+            return
+        self._two_column_active = two_col
+
+        while self._grid.count():
+            self._grid.takeAt(0)
+
+        if two_col:
+            self._grid.addWidget(self._status_card, 0, 0)
+            self._grid.addWidget(self._camera_card, 1, 0)
+            self._grid.addWidget(self._settings_card, 0, 1)
+            self._grid.addWidget(self._mapping_card, 1, 1)
+            self._grid.setColumnStretch(0, 1)
+            self._grid.setColumnStretch(1, 1)
+            self._grid.setRowStretch(0, 0)
+            self._grid.setRowStretch(1, 1)
+        else:
+            self._grid.addWidget(self._status_card, 0, 0)
+            self._grid.addWidget(self._camera_card, 1, 0)
+            self._grid.addWidget(self._mapping_card, 2, 0)
+            self._grid.addWidget(self._settings_card, 3, 0)
+            self._grid.setColumnStretch(0, 1)
+            self._grid.setColumnStretch(1, 0)
+            self._grid.setRowStretch(0, 0)
+            self._grid.setRowStretch(1, 0)
+
+    def resizeEvent(self, event: QtGui.QResizeEvent) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        w = event.size().width()
+        self._relayout_cards(w)
+        self._footer_hint.setVisible(w >= 640)
+        if not self.isMaximized():
+            inferred = "compact" if event.size().width() < self.COMPACT_BREAKPOINT else "standard"
+            self._window_mode = inferred
+            self._sync_mode_buttons(inferred)
+        else:
+            self._window_mode = "full"
+            self._sync_mode_buttons("full")
 
     def _on_preview_toggled(self, checked: bool) -> None:
         if not checked:
             self._preview_view.setPixmap(QtGui.QPixmap())
             self._preview_view.setText("Camera stays off until you say 'Hey Handy' or enable preview.")
             self._detected_label.setText("Detected: —")
+            self._highlight_gesture_row("")
         self.previewToggled.emit(checked)
+
+    def _highlight_gesture_row(self, active_gesture: str) -> None:
+        for key, row in self._gesture_rows.items():
+            want = "true" if key == active_gesture else "false"
+            if row.property("active") != want:
+                row.setProperty("active", want)
+                row.style().unpolish(row)
+                row.style().polish(row)
 
     @QtCore.Slot(str, float)
     def update_state(self, state: str, remaining_s: float) -> None:
         if state == "armed":
-            rem = "∞" if math.isinf(remaining_s) else f"{max(0.0, remaining_s):.1f}s"
-            self._state_label.setText(f"State: ARMED ({rem}) — waiting for hand gesture")
-            self._state_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #22c55e;")
+            rem = "Always-On" if math.isinf(remaining_s) else f"{max(0.0, remaining_s):.1f}s"
+            self._state_pill.setText(f"● ARMED • {rem}")
+            self._state_pill.setProperty("armed", "true")
         else:
-            self._state_label.setText(f"State: Sleeping — say '{self._phrase_edit.text().title()}'")
-            self._state_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #2dd4bf;")
+            self._state_pill.setText(f"● Sleeping — say '{self._phrase_edit.text().title()}'")
+            self._state_pill.setProperty("armed", "false")
+        self._state_pill.style().unpolish(self._state_pill)
+        self._state_pill.style().polish(self._state_pill)
 
     @QtCore.Slot(str, str, str)
     def update_last_action(self, _action: str, label: str, detail: str) -> None:
@@ -392,17 +713,17 @@ class SettingsWindow(QtWidgets.QMainWindow):
 
     @QtCore.Slot(str)
     def update_mic_device(self, device_name: str) -> None:
-        self._mic_status_label.setText(f"Mic ({device_name[:28]}):")
+        self._mic_status_label.setText(f"Mic ({device_name[:26]}):")
 
     @QtCore.Slot(object)
     def update_extension_status(self, status: ExtensionStatus) -> None:
         if status.connected:
             tab = status.active_tab_title or "No active media tab reported yet"
             kind = f" [{status.media_type}]" if status.media_type else ""
-            self._ext_label.setText(f"Browser Extension: Connected ({status.browser or 'Browser'}) — {tab}{kind}")
+            self._ext_label.setText(f"Target: Extension ({status.browser or 'Browser'}) — {tab}{kind}")
         else:
             self._ext_label.setText(
-                f"Browser Extension: Not connected (MPRIS & desktop media active; optional extension on ws://127.0.0.1:{self._config.ws_port})"
+                f"Target: Desktop MPRIS + Hyprland active (extension optional on ws://127.0.0.1:{self._config.ws_port})"
             )
 
     @QtCore.Slot(object)
@@ -436,8 +757,12 @@ class SettingsWindow(QtWidgets.QMainWindow):
             self._detected_label.setText(
                 f"Detected (live): {GESTURE_LABELS.get(frame.gesture, frame.gesture)} ({frame.confidence:.0%})"
             )
+            self._highlight_gesture_row(frame.gesture)
         else:
-            self._detected_label.setText("Detected (live): Hand visible — hold a gesture clearly" if frame.landmarks else "Detected (live): —")
+            self._highlight_gesture_row("")
+            self._detected_label.setText(
+                "Detected (live): Hand visible — hold a gesture clearly" if frame.landmarks else "Detected (live): —"
+            )
 
     def _open_extension_folder(self) -> None:
         ext_dir = Path(__file__).resolve().parents[3] / "extension"
@@ -469,7 +794,7 @@ class SettingsWindow(QtWidgets.QMainWindow):
         self._dl_thread.start()
 
     def _on_models_downloaded(self) -> None:
-        self._model_label.setText("Models: Ready (offline)")
+        self._model_label.setText("Models: Offline Ready (MediaPipe + sherpa-onnx)")
         if self._dl_btn:
             self._dl_btn.hide()
         self.modelsReady.emit()
@@ -483,11 +808,11 @@ class SettingsWindow(QtWidgets.QMainWindow):
         defaults = HeyHandyConfig()
         self._phrase_edit.setText(defaults.wake_phrase)
         self._mic_combo.setCurrentIndex(0)
-        self._sensitivity_spin.setValue(defaults.wake_sensitivity)
-        self._wake_window_spin.setValue(defaults.wake_window_s)
-        self._stability_spin.setValue(defaults.stability_frames)
-        self._conf_spin.setValue(defaults.min_confidence)
-        self._vol_step_spin.setValue(defaults.volume_step)
+        self._sens_slider.setValue(round(defaults.wake_sensitivity * 100))
+        self._window_slider.setValue(round(defaults.wake_window_s))
+        self._stability_slider.setValue(defaults.stability_frames)
+        self._conf_slider.setValue(round(defaults.min_confidence * 100))
+        self._vol_slider.setValue(defaults.volume_step)
         self._vol_mode_combo.setCurrentIndex(0)
         self._camera_spin.setValue(defaults.camera_index)
         self._always_on_chk.setChecked(defaults.always_on_gestures)
@@ -503,15 +828,15 @@ class SettingsWindow(QtWidgets.QMainWindow):
     def _save(self) -> None:
         cfg = HeyHandyConfig(
             wake_phrase=self._phrase_edit.text(),
-            wake_sensitivity=self._sensitivity_spin.value(),
-            wake_window_s=self._wake_window_spin.value(),
+            wake_sensitivity=self._sens_slider.value() / 100.0,
+            wake_window_s=float(self._window_slider.value()),
             post_action_grace_s=self._config.post_action_grace_s,
             action_cooldown_s=self._config.action_cooldown_s,
             volume_repeat_s=self._config.volume_repeat_s,
-            volume_step=self._vol_step_spin.value(),
+            volume_step=self._vol_slider.value(),
             volume_mode=str(self._vol_mode_combo.currentData()),
-            stability_frames=self._stability_spin.value(),
-            min_confidence=self._conf_spin.value(),
+            stability_frames=self._stability_slider.value(),
+            min_confidence=self._conf_slider.value() / 100.0,
             min_hand_span=self._config.min_hand_span,
             keep_camera_warm=self._warm_cam_chk.isChecked(),
             always_on_gestures=self._always_on_chk.isChecked(),
@@ -522,10 +847,20 @@ class SettingsWindow(QtWidgets.QMainWindow):
             ws_port=self._config.ws_port,
             camera_index=self._camera_spin.value(),
             mic_device=self._mic_combo.currentData(),
+            window_width=self._config.window_width if self.isMaximized() else self.width(),
+            window_height=self._config.window_height if self.isMaximized() else self.height(),
+            window_mode=self._window_mode,
             gesture_map={k: str(c.currentData()) for k, c in self._gesture_combos.items()},
         ).normalized()
         self._config = cfg
         self.configSaved.emit(cfg)
+        self._save_btn.setText("✓ Saved!")
+        self._save_feedback_timer.start(1400)
+
+    def hideEvent(self, event: QtGui.QHideEvent) -> None:  # noqa: N802
+        if self._preview_toggle.isChecked():
+            self._preview_toggle.setChecked(False)
+        super().hideEvent(event)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:  # noqa: N802
         if self._preview_toggle.isChecked():

@@ -80,6 +80,7 @@ def test_controller_wakes_dispatches_to_extension_and_broadcasts_hud(tmp_path) -
     driver.start()
     try:
         asyncio.run(asyncio.wait_for(_client(), timeout=3.0))
+        driver.join(timeout=1.5)
         app.processEvents()
         assert len(cmd_events) == 1 and cmd_events[0]["action"] == "pause"
         assert any(h.get("state") == "armed" for h in hud_events)
