@@ -24,7 +24,13 @@ _VIRTUAL_SOURCE_TOKENS = (
     "pipewire",
     "pulse",
     "default",
+    "sysdefault",
     "jack",
+    "lavrate",
+    "samplerate",
+    "speex",
+    "upmix",
+    "vdownmix",
     "alsa playback",
     "zen",
     "firefox",
@@ -80,7 +86,20 @@ def list_input_devices() -> List[Tuple[int, str]]:
             continue
         name = str(dev.get("name") or f"Input #{idx}")
         low = name.lower()
-        if any(skip in low for skip in ("alsa playback", "zen", "firefox", "chromium")):
+        if any(
+            skip in low
+            for skip in (
+                "alsa playback",
+                "zen",
+                "firefox",
+                "chromium",
+                "lavrate",
+                "samplerate",
+                "speex",
+                "upmix",
+                "vdownmix",
+            )
+        ):
             continue
         results.append((idx, name))
     return results
@@ -123,7 +142,7 @@ def pick_best_input_device(preferred: Optional[int]) -> Tuple[Optional[int], str
         )
 
         if prefer_hardware:
-            # Prefer a real hardware capture device (Built-in / USB / Mic / Analog) over virtual nodes.
+            # Prefer a non-exclusive PipeWire/PulseAudio hardware mic over raw ALSA hw: or rnnoise.
             hardware_candidates = []
             for idx, dev in enumerate(devices):
                 if int(dev.get("max_input_channels") or 0) <= 0:
@@ -133,6 +152,8 @@ def pick_best_input_device(preferred: Optional[int]) -> Tuple[Optional[int], str
                 if any(tok in low for tok in _VIRTUAL_SOURCE_TOKENS):
                     continue
                 score = 0
+                if "(hw:" not in low:
+                    score += 20
                 if any(k in low for k in ("usb", "headset", "webcam", "mic", "analog", "built-in", "alc", "hda")):
                     score += 10
                 hardware_candidates.append((score, idx, name))
