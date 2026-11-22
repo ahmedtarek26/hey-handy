@@ -128,6 +128,10 @@
         background: #000 !important;
       }
       .hh-fs-video {
+        position: absolute !important;
+        inset: 0 !important;
+        top: 0 !important;
+        left: 0 !important;
         width: 100% !important;
         height: 100% !important;
         max-width: 100vw !important;
@@ -170,6 +174,9 @@
     if (container !== video) video.classList.add("hh-fs-video");
     st.pseudoFsContainer = container;
     st.pseudoFsVideo = video;
+    if (typeof Event === "function" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new Event("resize"));
+    }
   }
 
   function exitPseudoFullscreen() {
@@ -180,6 +187,9 @@
     if (st.pseudoFsVideo) st.pseudoFsVideo.classList.remove("hh-fs-video");
     st.pseudoFsContainer = null;
     st.pseudoFsVideo = null;
+    if (typeof Event === "function" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new Event("resize"));
+    }
   }
 
   function renderHud(hud) {

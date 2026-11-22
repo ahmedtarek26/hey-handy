@@ -241,6 +241,69 @@ class SystemController:
                 best = c
         return best
 
+    def _hypr_eval(self, lua_expr: str) -> bool:
+        if not shutil.which("hyprctl"):
+            return False
+        rc, out = _run_quiet(["hyprctl", "eval", lua_expr])
+        low = out.lower()
+        return rc == 0 and "error:" not in low and "warning:" not in low
+
+    def _hypr_focus(self, addr: str) -> bool:
+        if not shutil.which("hyprctl"):
+            return False
+        rc, active_raw = _run_quiet(["hyprctl", "activewindow", "-j"])
+        if rc == 0 and active_raw:
+            try:
+                if json.loads(active_raw).get("address") == addr:
+                    return True
+            except json.JSONDecodeError:
+                pass
+        if self._hypr_eval(f'hl.dispatch(hl.dsp.focus({{ window = "address:{addr}" }}))'):
+            return True
+        rc2, out2 = _run_quiet(["hyprctl", "dispatch", "focuswindow", f"address:{addr}"])
+        return rc2 == 0 and "error:" not in out2.lower()
+
+    def _hypr_send_key(self, key: str) -> bool:
+        lua = (
+            f'hl.dispatch(hl.dsp.send_key_state({{ mods = "", key = "{key}", state = "down" }})) '
+            f'hl.timer(function() hl.dispatch(hl.dsp.send_key_state({{ mods = "", key = "{key}", state = "up" }})) end, '
+            f'{{ timeout = 40, type = "oneshot" }})'
+        )
+        if self._hypr_eval(lua):
+            return True
+        if shutil.which("wtype"):
+            rc, _ = _run_quiet(["wtype", "-k", key])
+            return rc == 0
+        return False
+
+    def _hypr_toggle_fullscreen(self) -> bool:
+        if self._hypr_eval('hl.dispatch(hl.dsp.window.fullscreen({ mode = "fullscreen" }))'):
+            return True
+        rc, out = _run_quiet(["hyprctl", "dispatch", "fullscreen", "0"])
+        return rc == 0 and "error:" not in out.lower()
+
+    def _is_video_player_window(self, win: dict) -> bool:
+        cls = str(win.get("class") or "").lower()
+        title = str(win.get("title") or "").lower()
+        if any(p in cls for p in ("mpv", "vlc", "celluloid", "totem")):
+            return True
+        return any(
+            site in title
+            for site in (
+                "youtube",
+                "twitch",
+                "vimeo",
+                "netflix",
+                "kick",
+                "dailymotion",
+                "prime video",
+                "disney+",
+                "bilibili",
+                "coursera",
+                "udemy",
+            )
+        )
+
     def fallback_media_action(self, action: str) -> bool:
         """Control desktop media players (Zen, Chrome, VLC, mpv, Spotify) without extension."""
         self.last_target_label = ""
@@ -292,31 +355,21 @@ class SystemController:
                     addr = win["address"]
                     cls = str(win.get("class") or "").lower()
                     key = "space" if any(p in cls for p in ("mpv", "vlc", "celluloid")) else "XF86AudioPlay"
-                    rc, _ = _run_quiet(["hyprctl", "dispatch", "focuswindow", f"address:{addr}"])
-                    if rc == 0 and shutil.which("wtype"):
-                        rc2, _ = _run_quiet(["wtype", "-k", key])
-                        if rc2 == 0:
-                            self.last_target_label = str(win.get("class") or "Active Window")
-                            return True
+                    if self._hypr_focus(addr) and self._hypr_send_key(key):
+                        self.last_target_label = str(win.get("class") or "Active Window")
+                        return True
                 return False
 
             if action == "fullscreen":
                 win = self._pick_hyprland_media_window()
                 if win and win.get("address"):
                     addr = win["address"]
-                    cls = str(win.get("class") or "").lower()
                     self.last_target_label = str(win.get("class") or "Active Window")
-                    if any(p in cls for p in ("mpv", "vlc", "celluloid", "totem")):
-                        rc, _ = _run_quiet(
-                            ["hyprctl", "--batch", f"dispatch focuswindow address:{addr} ; dispatch fullscreen 0"]
-                        )
-                        if rc == 0:
+                    if self._hypr_focus(addr):
+                        if self._is_video_player_window(win) and self._hypr_send_key("f"):
                             return True
-                    rc, _ = _run_quiet(
-                        ["hyprctl", "--batch", f"dispatch focuswindow address:{addr} ; dispatch fullscreen 0"]
-                    )
-                    if rc == 0:
-                        return True
+                        if self._hypr_toggle_fullscreen():
+                            return True
                 if shutil.which("wtype"):
                     rc, _ = _run_quiet(["wtype", "-k", "F11"])
                     if rc == 0:
