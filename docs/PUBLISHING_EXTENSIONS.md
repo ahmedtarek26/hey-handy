@@ -24,8 +24,12 @@ This generates two store-ready ZIP archives in `dist/`:
 ## 2. Microsoft Edge Add-ons (Free)
 
 1. Register a free developer account in [Microsoft Partner Center (Edge)](https://partner.microsoft.com/dashboard/microsoftedge/).
-2. Create a new extension and upload `dist/hey-handy-chromium-edge-mv3.zip`.
-3. Privacy Policy URL: `https://github.com/ahmedtarek26/hey-handy/blob/main/PRIVACY.md`
+2. Create a new item and upload `dist/hey-handy-chromium-edge-mv3.zip`.
+3. Store graphic assets ready to upload:
+   - Screenshot (`1280×800`): [`docs/store-screenshot-1280x800.png`](store-screenshot-1280x800.png)
+   - Small Promo Tile (`440×280`): [`docs/store-promo-440x280.png`](store-promo-440x280.png)
+   - Icon (`128×128`): [`extension/icons/icon128.png`](../extension/icons/icon128.png)
+4. Privacy Policy URL: `https://github.com/ahmedtarek26/hey-handy/blob/main/PRIVACY.md`
 
 ---
 

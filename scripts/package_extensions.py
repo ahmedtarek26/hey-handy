@@ -43,8 +43,8 @@ def build_store_manifest(base: dict, target: str) -> dict:
         bss = manifest.setdefault("browser_specific_settings", {})
         gecko = bss.setdefault("gecko", {})
         gecko.setdefault("id", "hey-handy@ahmedtarek26.dev")
-        # Mozilla AMO requires explicit data_collection_permissions on new MV3 add-ons (Nov 2025+).
-        gecko["strict_min_version"] = "140.0"
+        # Mozilla AMO requires explicit data_collection_permissions (Firefox 142+ desktop/Android).
+        gecko["strict_min_version"] = "142.0"
         gecko["data_collection_permissions"] = {"required": ["none"]}
         return manifest
 
