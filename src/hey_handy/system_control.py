@@ -270,7 +270,7 @@ class SystemController:
                                 "--dest",
                                 bus,
                                 "--object-path",
-                                "/org/freedesktop/MediaPlayer2",
+                                "/org/mpris/MediaPlayer2",
                                 "--method",
                                 f"org.mpris.MediaPlayer2.Player.{method_map[action]}",
                             ]
@@ -292,10 +292,12 @@ class SystemController:
                     addr = win["address"]
                     cls = str(win.get("class") or "").lower()
                     key = "space" if any(p in cls for p in ("mpv", "vlc", "celluloid")) else "XF86AudioPlay"
-                    rc, _ = _run_quiet(["hyprctl", "dispatch", "sendshortcut", f", {key}, address:{addr}"])
-                    if rc == 0:
-                        self.last_target_label = str(win.get("class") or "Active Window")
-                        return True
+                    rc, _ = _run_quiet(["hyprctl", "dispatch", "focuswindow", f"address:{addr}"])
+                    if rc == 0 and shutil.which("wtype"):
+                        rc2, _ = _run_quiet(["wtype", "-k", key])
+                        if rc2 == 0:
+                            self.last_target_label = str(win.get("class") or "Active Window")
+                            return True
                 return False
 
             if action == "fullscreen":
