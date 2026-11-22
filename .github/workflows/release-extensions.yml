@@ -1,0 +1,31 @@
+name: Package & Release Browser Extensions
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-extensions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Build Chromium/Edge and Firefox/Zen store ZIPs
+        run: uv run python scripts/package_extensions.py --out-dir dist
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hey-handy-browser-extensions
+          path: dist/*.zip
+      - name: Publish GitHub Release assets (on version tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip

@@ -21,6 +21,40 @@ def test_extension_manifest_is_valid_unified_mv3() -> None:
     assert "gecko" in manifest["browser_specific_settings"]
 
 
+def test_store_extension_packages_build_cleanly(tmp_path: Path) -> None:
+    import importlib.util
+    import zipfile
+
+    script_path = ROOT / "scripts" / "package_extensions.py"
+    spec = importlib.util.spec_from_file_location("package_extensions", script_path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    outputs = mod.package_extensions(tmp_path)
+    assert set(outputs.keys()) == {"chromium", "firefox"}
+
+    with zipfile.ZipFile(outputs["chromium"]) as zf:
+        names = set(zf.namelist())
+        assert "manifest.json" in names
+        assert "background.js" in names
+        assert "content.js" in names
+        assert "icons/icon128.png" in names
+        cm = json.loads(zf.read("manifest.json"))
+        assert cm["background"] == {"service_worker": "background.js"}
+        assert "browser_specific_settings" not in cm
+
+    with zipfile.ZipFile(outputs["firefox"]) as zf:
+        names = set(zf.namelist())
+        assert "manifest.json" in names
+        fm = json.loads(zf.read("manifest.json"))
+        assert fm["background"] == {"scripts": ["background.js"]}
+        assert "minimum_chrome_version" not in fm
+        assert fm["browser_specific_settings"]["gecko"]["data_collection_permissions"] == {
+            "required": ["none"]
+        }
+
+
 def test_extension_content_script_controls_video_and_audio_tabs() -> None:
     node = shutil.which("node")
     assert node is not None, "node is required to run extension DOM smoke tests"

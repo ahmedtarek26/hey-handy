@@ -89,6 +89,14 @@ Hey Handy already works across browsers and local players (`VLC`, `mpv`, `Spotif
 
 The extension automatically connects to the desktop app at `ws://127.0.0.1:17421`.
 
+### 3. Build Store-Ready Browser Packages (All Browsers)
+
+To generate clean `.zip` packages for **Chrome Web Store**, **Microsoft Edge Add-ons**, and **Firefox Add-ons (AMO / Zen)**, see [`docs/PUBLISHING_EXTENSIONS.md`](docs/PUBLISHING_EXTENSIONS.md) and [`PRIVACY.md`](PRIVACY.md), or run:
+
+```bash
+uv run python scripts/package_extensions.py
+```
+
 ---
 
 ## ⚙️ Settings & Window Modes
