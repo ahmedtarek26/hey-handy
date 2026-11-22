@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hey-handy"
+version = "0.1.0"
+description = "Wake-word gated hand gesture controller for your active browser video/audio tab — built for hands-free control while eating."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10,<3.13"
+authors = [
+  { name = "ahmedtarek26", email = "ahmedtarek2632@gmail.com" }
+]
+keywords = ["gesture-control", "wake-word", "mediapipe", "sherpa-onnx", "media-controller", "accessibility"]
+dependencies = [
+  "mediapipe>=0.10.14,<0.11",
+  "numpy>=1.26,<3",
+  "opencv-python-headless>=4.9",
+  "PySide6-Essentials>=6.7",
+  "sentencepiece>=0.2",
+  "sherpa-onnx>=1.10",
+  "sounddevice>=0.4.6",
+  "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+hey-handy = "hey_handy.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hey_handy"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

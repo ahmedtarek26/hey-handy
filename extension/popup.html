@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hey Handy</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="card">
+      <div class="header">
+        <span class="dot" id="dot"></span>
+        <div>
+          <h1>Hey Handy</h1>
+          <p class="status" id="status">Checking desktop app...</p>
+        </div>
+      </div>
+
+      <div class="tab-box">
+        <div class="label">Active Tab</div>
+        <div class="tab-title" id="tabTitle">—</div>
+      </div>
+
+      <div class="grid">
+        <button data-action="play_pause">⏯ Play / Pause</button>
+        <button data-action="pause">⏸ Pause</button>
+        <button data-action="fullscreen">⛶ Fullscreen</button>
+        <button data-action="mute">🔇 Mute</button>
+        <button data-action="volume_down">🔉 Vol -</button>
+        <button data-action="volume_up">🔊 Vol +</button>
+      </div>
+
+      <p class="hint">Say <strong>"Hey Handy"</strong> then use a gesture while eating.</p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
