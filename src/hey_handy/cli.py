@@ -101,6 +101,7 @@ def main(argv: list[str] | None = None) -> int:
                 hud.show_sleeping()
 
     def _on_action(_action: str, label: str, detail: str) -> None:
+        settings.update_last_action(_action, label, detail)
         if controller.config.show_desktop_hud:
             hud.show_action(label, detail)
 
@@ -108,6 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     controller.actionExecuted.connect(_on_action)
     controller.extensionChanged.connect(settings.update_extension_status)
     controller.previewReady.connect(settings.update_preview)
+    controller.micLevelChanged.connect(settings.update_mic_level)
+    controller.micDeviceChanged.connect(settings.update_mic_device)
     controller.errorOccurred.connect(lambda msg: print(f"[Hey Handy] {msg}", file=sys.stderr))
 
     settings.configSaved.connect(controller.apply_config)

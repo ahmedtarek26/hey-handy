@@ -127,12 +127,35 @@ def test_discrete_gesture_fires_once_with_cooldown_and_grace() -> None:
     for idx in range(5):
         assert sm.process_detection("Victory", 0.9, victory, now=0.5 + idx * 0.1) is None
 
-    # After cooldown (at 1.8s+) it can fire again
+    # After cooldown (at 1.8s+) it requires stability_frames again, then fires
     assert sm.process_detection("Victory", 0.9, victory, now=1.8) is None
     assert sm.process_detection("Victory", 0.9, victory, now=1.9) is None
     ev2 = sm.process_detection("Victory", 0.9, victory, now=2.0)
     assert ev2 is not None
     assert ev2.action == "fullscreen"
+
+
+def test_landmark_fallback_detects_when_mediapipe_label_is_none() -> None:
+    cfg = HeyHandyConfig(stability_frames=2).normalized()
+    sm = GestureStateMachine(cfg)
+    sm.wake(now=0.0)
+
+    palm = _make_hand(index_ext=True, middle_ext=True, ring_ext=True, pinky_ext=True)
+    assert sm.process_detection("None", 0.40, palm, now=0.1) is None
+    ev = sm.process_detection("None", 0.40, palm, now=0.2)
+    assert ev is not None
+    assert ev.gesture == "Open_Palm"
+    assert ev.action == "play_pause"
+
+
+def test_force_armed_preview_mode_fires_without_wake() -> None:
+    cfg = HeyHandyConfig(stability_frames=2).normalized()
+    sm = GestureStateMachine(cfg)
+    assert not sm.is_armed
+    fist = _make_hand(index_ext=False, middle_ext=False, ring_ext=False, pinky_ext=False)
+    assert sm.process_detection("Closed_Fist", 0.85, fist, now=0.1, force_armed=True) is None
+    ev = sm.process_detection("Closed_Fist", 0.85, fist, now=0.2, force_armed=True)
+    assert ev is not None and ev.action == "pause"
 
 
 def test_continuous_volume_repeats_and_extends_wake_window() -> None:

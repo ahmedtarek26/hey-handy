@@ -78,6 +78,7 @@ def get_data_dir() -> Path:
 class HeyHandyConfig:
     """User-configurable settings for wake word, gestures, and active tab control."""
 
+    schema_version: int = 2
     wake_phrase: str = "HEY HANDY"
     wake_sensitivity: float = 0.55  # 0.1 (strict) .. 1.0 (sensitive)
     wake_window_s: float = 8.0
@@ -86,9 +87,9 @@ class HeyHandyConfig:
     volume_repeat_s: float = 0.28
     volume_step: int = 8  # percent (1..25)
     volume_mode: str = "system"  # "system", "tab", or "both"
-    stability_frames: int = 4  # consecutive/consensus frames required
-    min_confidence: float = 0.58
-    min_hand_span: float = 0.08
+    stability_frames: int = 3  # consecutive/consensus frames required
+    min_confidence: float = 0.42
+    min_hand_span: float = 0.06
     keep_camera_warm: bool = False
     always_on_gestures: bool = False
     show_desktop_hud: bool = True
@@ -102,6 +103,7 @@ class HeyHandyConfig:
 
     def normalized(self) -> "HeyHandyConfig":
         """Clamp numerical fields and sanitize gesture mappings."""
+        self.schema_version = 2
         self.wake_phrase = (self.wake_phrase or "HEY HANDY").strip().upper()
         self.wake_sensitivity = max(0.1, min(1.0, float(self.wake_sensitivity)))
         self.wake_window_s = max(2.0, min(60.0, float(self.wake_window_s)))
@@ -112,7 +114,7 @@ class HeyHandyConfig:
         if self.volume_mode not in ("system", "tab", "both"):
             self.volume_mode = "system"
         self.stability_frames = max(2, min(10, int(self.stability_frames)))
-        self.min_confidence = max(0.35, min(0.95, float(self.min_confidence)))
+        self.min_confidence = max(0.30, min(0.95, float(self.min_confidence)))
         self.min_hand_span = max(0.03, min(0.30, float(self.min_hand_span)))
         self.ws_port = max(1024, min(65535, int(self.ws_port)))
         self.camera_index = max(0, int(self.camera_index))
@@ -126,7 +128,7 @@ class HeyHandyConfig:
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "HeyHandyConfig":
-        """Load configuration from disk, returning defaults if missing or invalid."""
+        """Load configuration from disk, migrating older defaults cleanly."""
         target = path or (get_config_dir() / "config.json")
         if not target.exists():
             return cls().normalized()
@@ -134,6 +136,14 @@ class HeyHandyConfig:
             raw = json.loads(target.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 return cls().normalized()
+            if int(raw.get("schema_version", 1)) < 2:
+                # Upgrade overly strict v1 vision thresholds that missed dim webcam hands.
+                if raw.get("min_confidence") == 0.58:
+                    raw["min_confidence"] = 0.42
+                if raw.get("stability_frames") == 4:
+                    raw["stability_frames"] = 3
+                if raw.get("min_hand_span") == 0.08:
+                    raw["min_hand_span"] = 0.06
             valid_fields = {f for f in cls.__dataclass_fields__}
             filtered = {k: v for k, v in raw.items() if k in valid_fields}
             return cls(**filtered).normalized()

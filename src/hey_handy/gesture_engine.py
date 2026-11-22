@@ -7,7 +7,7 @@ import threading
 import time
 from collections import Counter, deque
 from dataclasses import dataclass
-from typing import Callable, Deque, Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Deque, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -64,8 +64,8 @@ def _is_finger_extended(
     tip_idx: int,
 ) -> bool:
     wrist = landmarks[WRIST]
-    return _dist2d(wrist, landmarks[tip_idx]) > _dist2d(wrist, landmarks[pip_idx]) * 1.06 and (
-        _dist2d(wrist, landmarks[tip_idx]) > _dist2d(wrist, landmarks[mcp_idx]) * 1.20
+    return _dist2d(wrist, landmarks[tip_idx]) > _dist2d(wrist, landmarks[pip_idx]) * 1.03 and (
+        _dist2d(wrist, landmarks[tip_idx]) > _dist2d(wrist, landmarks[mcp_idx]) * 1.12
     )
 
 
@@ -76,15 +76,16 @@ def _is_finger_curled(
     tip_idx: int,
 ) -> bool:
     wrist = landmarks[WRIST]
-    return _dist2d(wrist, landmarks[tip_idx]) < _dist2d(wrist, landmarks[pip_idx]) * 1.05
+    return _dist2d(wrist, landmarks[tip_idx]) < _dist2d(wrist, landmarks[pip_idx]) * 1.08
 
 
-def validate_gesture_geometry(gesture: str, landmarks: Optional[Sequence[LandmarkPoint]]) -> bool:
-    """Apply geometric sanity checks on top of MediaPipe's classifier to prevent eating misfires."""
-    if landmarks is None:
-        return True
-    if len(landmarks) < 21:
-        return False
+def infer_gesture_from_landmarks(
+    landmarks: Optional[Sequence[LandmarkPoint]],
+    min_span: float = 0.06,
+) -> Tuple[Optional[str], float]:
+    """Geometric fallback classifier when MediaPipe emits 'None' on tilted/dim hands."""
+    if not landmarks or len(landmarks) < 21 or hand_span(landmarks) < min_span:
+        return None, 0.0
 
     index_ext = _is_finger_extended(landmarks, INDEX_MCP, INDEX_PIP, INDEX_TIP)
     middle_ext = _is_finger_extended(landmarks, MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP)
@@ -96,25 +97,47 @@ def validate_gesture_geometry(gesture: str, landmarks: Optional[Sequence[Landmar
     ring_curl = _is_finger_curled(landmarks, RING_MCP, RING_PIP, RING_TIP)
     pinky_curl = _is_finger_curled(landmarks, PINKY_MCP, PINKY_PIP, PINKY_TIP)
 
+    if index_ext and middle_ext and ring_ext and pinky_ext:
+        return "Open_Palm", 0.72
+
+    if index_ext and middle_ext and ring_curl and pinky_curl:
+        return "Victory", 0.72
+
+    if index_ext and middle_curl and ring_curl and pinky_curl:
+        return "Pointing_Up", 0.70
+
+    if index_curl and middle_curl and ring_curl and pinky_curl:
+        thumb_dy_up = landmarks[THUMB_MCP].y - landmarks[THUMB_TIP].y
+        thumb_dy_down = landmarks[THUMB_TIP].y - landmarks[THUMB_MCP].y
+        span = max(0.08, hand_span(landmarks))
+        if thumb_dy_up > span * 0.22 and landmarks[THUMB_TIP].y < landmarks[INDEX_MCP].y:
+            return "Thumb_Up", 0.72
+        if thumb_dy_down > span * 0.22 and landmarks[THUMB_TIP].y > landmarks[INDEX_MCP].y:
+            return "Thumb_Down", 0.72
+        if abs(thumb_dy_up) < span * 0.28:
+            return "Closed_Fist", 0.68
+
+    return None, 0.0
+
+
+def validate_gesture_geometry(gesture: str, landmarks: Optional[Sequence[LandmarkPoint]]) -> bool:
+    """Guard thumb orientation and clear fist/palm mismatches without rejecting angled hands."""
+    if landmarks is None:
+        return True
+    if len(landmarks) < 21:
+        return False
+
+    middle_curl = _is_finger_curled(landmarks, MIDDLE_MCP, MIDDLE_PIP, MIDDLE_TIP)
+    ring_curl = _is_finger_curled(landmarks, RING_MCP, RING_PIP, RING_TIP)
+    pinky_curl = _is_finger_curled(landmarks, PINKY_MCP, PINKY_PIP, PINKY_TIP)
+
     if gesture == "Thumb_Up":
         thumb_dy = landmarks[THUMB_MCP].y - landmarks[THUMB_TIP].y
-        return thumb_dy > 0.04 and middle_curl and ring_curl and pinky_curl
+        return thumb_dy > 0.025 and sum((middle_curl, ring_curl, pinky_curl)) >= 2
 
     if gesture == "Thumb_Down":
         thumb_dy = landmarks[THUMB_TIP].y - landmarks[THUMB_MCP].y
-        return thumb_dy > 0.04 and middle_curl and ring_curl and pinky_curl
-
-    if gesture == "Open_Palm":
-        return sum((index_ext, middle_ext, ring_ext, pinky_ext)) >= 3
-
-    if gesture == "Closed_Fist":
-        return sum((index_curl, middle_curl, ring_curl, pinky_curl)) >= 3
-
-    if gesture == "Victory":
-        return index_ext and middle_ext and ring_curl and pinky_curl
-
-    if gesture == "Pointing_Up":
-        return index_ext and middle_curl and ring_curl and pinky_curl
+        return thumb_dy > 0.025 and sum((middle_curl, ring_curl, pinky_curl)) >= 2
 
     return True
 
@@ -182,18 +205,28 @@ class GestureStateMachine:
         confidence: float,
         landmarks: Optional[Sequence[LandmarkPoint]],
         now: float,
+        force_armed: bool = False,
     ) -> Optional[GestureEvent]:
         """Evaluate one frame's MediaPipe detection and emit a GestureEvent when confirmed."""
-        if self.tick(now) or not self.is_armed:
+        expired = self.tick(now)
+        if not force_armed and (expired or not self.is_armed):
             return None
 
-        action = self.config.gesture_map.get(gesture_name or "", "none")
+        resolved_name = gesture_name
+        resolved_conf = confidence
+        if (not resolved_name or resolved_name == "None" or resolved_conf < self.config.min_confidence) and landmarks:
+            fb_name, fb_conf = infer_gesture_from_landmarks(landmarks, self.config.min_hand_span)
+            if fb_name:
+                resolved_name = fb_name
+                resolved_conf = fb_conf
+
+        action = self.config.gesture_map.get(resolved_name or "", "none")
         valid = (
-            bool(gesture_name)
+            bool(resolved_name)
             and action != "none"
-            and confidence >= self.config.min_confidence
+            and resolved_conf >= self.config.min_confidence
             and (landmarks is None or hand_span(landmarks) >= self.config.min_hand_span)
-            and validate_gesture_geometry(gesture_name or "", landmarks)
+            and validate_gesture_geometry(resolved_name or "", landmarks)
         )
 
         if not valid:
@@ -205,19 +238,17 @@ class GestureStateMachine:
 
         is_continuous = action in CONTINUOUS_ACTIONS
         if not is_continuous and (now - self._last_discrete_at) < self.config.action_cooldown_s:
-            # Do not let frames held during cooldown accumulate toward an instant re-trigger.
             self._history.clear()
             return None
 
         self._miss_streak = 0
-        self._history.append(gesture_name)
+        self._history.append(resolved_name)
         counts = Counter(g for g in self._history if g is not None)
-        if not counts or counts.get(gesture_name, 0) < self.config.stability_frames:
+        if not counts or counts.get(resolved_name, 0) < self.config.stability_frames:
             return None
 
         if is_continuous:
-            # Keep wake window alive while the user holds Thumb Up / Down for volume.
-            if not self.config.always_on_gestures:
+            if not self.config.always_on_gestures and self._armed:
                 self._armed_until = max(
                     self._armed_until,
                     now + max(4.0, self.config.post_action_grace_s + 1.5),
@@ -229,9 +260,9 @@ class GestureStateMachine:
                 self._active_continuous = action
                 self._last_continuous_at = now
                 return GestureEvent(
-                    gesture=gesture_name or "",
+                    gesture=resolved_name or "",
                     action=action,
-                    confidence=confidence,
+                    confidence=resolved_conf,
                     continuous=True,
                 )
             return None
@@ -242,13 +273,13 @@ class GestureStateMachine:
 
         if action == "sleep":
             self.sleep()
-        elif not self.config.always_on_gestures:
+        elif not self.config.always_on_gestures and self._armed:
             self._armed_until = now + self.config.post_action_grace_s
 
         return GestureEvent(
-            gesture=gesture_name or "",
+            gesture=resolved_name or "",
             action=action,
-            confidence=confidence,
+            confidence=resolved_conf,
             continuous=False,
         )
 
@@ -265,7 +296,7 @@ class PreviewFrame:
 
 
 class CameraGestureWorker:
-    """Runs MediaPipe GestureRecognizer only while armed (or previewing/warm)."""
+    """Runs MediaPipe GestureRecognizer while armed or while testing in preview mode."""
 
     def __init__(
         self,
@@ -291,6 +322,7 @@ class CameraGestureWorker:
         self._stop_event = threading.Event()
         self._wake_event = threading.Event()
         self._preview_enabled = False
+        self._preview_executes = True
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> None:
@@ -321,8 +353,9 @@ class CameraGestureWorker:
         if self.on_sleep:
             self.on_sleep()
 
-    def set_preview_enabled(self, enabled: bool) -> None:
+    def set_preview_enabled(self, enabled: bool, execute_actions: bool = True) -> None:
         self._preview_enabled = bool(enabled)
+        self._preview_executes = bool(execute_actions)
         if enabled:
             self._wake_event.set()
 
@@ -362,9 +395,9 @@ class CameraGestureWorker:
                 base_options=mp_python.BaseOptions(model_asset_path=str(self.model_paths.gesture_task)),
                 running_mode=vision.RunningMode.IMAGE,
                 num_hands=1,
-                min_hand_detection_confidence=0.45,
-                min_hand_presence_confidence=0.45,
-                min_tracking_confidence=0.45,
+                min_hand_detection_confidence=0.35,
+                min_hand_presence_confidence=0.35,
+                min_tracking_confidence=0.35,
             )
             recognizer = vision.GestureRecognizer.create_from_options(options)
         except Exception as exc:
@@ -428,7 +461,6 @@ class CameraGestureWorker:
                     if self.on_countdown:
                         self.on_countdown(remaining)
 
-                # If camera is only open because keep_camera_warm=True (and not previewing), sleep lightly.
                 if not is_armed and not self._preview_enabled:
                     time.sleep(0.08)
                     continue
@@ -456,6 +488,13 @@ class CameraGestureWorker:
                     gesture_name = top.category_name or ""
                     score = float(top.score or 0.0)
 
+                # Surface geometric fallback label in preview too so user sees exact detection.
+                if (not gesture_name or gesture_name == "None" or score < self.config.min_confidence) and landmarks:
+                    fb_name, fb_conf = infer_gesture_from_landmarks(landmarks, self.config.min_hand_span)
+                    if fb_name:
+                        gesture_name, score = fb_name, fb_conf
+
+                live_test = self._preview_enabled and self._preview_executes
                 if self._preview_enabled and self.on_preview:
                     self.on_preview(
                         PreviewFrame(
@@ -463,17 +502,18 @@ class CameraGestureWorker:
                             gesture=gesture_name,
                             confidence=score,
                             landmarks=landmarks,
-                            armed=is_armed,
+                            armed=is_armed or live_test,
                         )
                     )
 
-                if is_armed:
+                if is_armed or live_test:
                     with self._lock:
                         event = self.state_machine.process_detection(
                             gesture_name=gesture_name or None,
                             confidence=score,
                             landmarks=landmarks or None,
                             now=now,
+                            force_armed=live_test,
                         )
                         just_slept = event is not None and event.action == "sleep"
                     if event and self.on_event:
@@ -481,7 +521,7 @@ class CameraGestureWorker:
                     if just_slept and self.on_sleep:
                         self.on_sleep()
 
-                time.sleep(0.03)  # ~30 fps cap
+                time.sleep(0.03)
         finally:
             _close_cap()
             try:

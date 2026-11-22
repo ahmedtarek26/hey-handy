@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -13,6 +15,22 @@ from .models import ModelPaths
 
 TARGET_SAMPLE_RATE = 16000
 
+_VIRTUAL_SOURCE_TOKENS = (
+    "rnnoise",
+    "noise cancel",
+    "noisecancel",
+    "monitor",
+    "echo-cancel",
+    "pipewire",
+    "pulse",
+    "default",
+    "jack",
+    "alsa playback",
+    "zen",
+    "firefox",
+    "chromium",
+)
+
 
 def resample_mono(samples: np.ndarray, src_rate: int, dst_rate: int = TARGET_SAMPLE_RATE) -> np.ndarray:
     """Resample a 1-D float32 audio chunk from src_rate to dst_rate."""
@@ -23,6 +41,111 @@ def resample_mono(samples: np.ndarray, src_rate: int, dst_rate: int = TARGET_SAM
     src_x = np.linspace(0.0, 1.0, arr.size, endpoint=False)
     dst_x = np.linspace(0.0, 1.0, dst_len, endpoint=False)
     return np.interp(dst_x, src_x, arr).astype(np.float32)
+
+
+def normalize_speech_chunk(
+    samples: np.ndarray,
+    ema_peak: float,
+    noise_floor: float = 0.0025,
+    target_peak: float = 0.35,
+    max_gain: float = 16.0,
+) -> Tuple[np.ndarray, float]:
+    """Boost quiet microphone inputs smoothly while keeping pure silence untouched."""
+    arr = np.asarray(samples, dtype=np.float32).reshape(-1)
+    if arr.size == 0:
+        return arr, ema_peak
+    chunk_peak = float(np.max(np.abs(arr)))
+    new_ema = max(chunk_peak, ema_peak * 0.90)
+    if new_ema < noise_floor:
+        return arr, new_ema
+    gain = min(max_gain, target_peak / max(new_ema, 1e-4))
+    if gain <= 1.05:
+        return arr, new_ema
+    boosted = np.tanh(arr * gain).astype(np.float32)
+    return boosted, new_ema
+
+
+def list_input_devices() -> List[Tuple[int, str]]:
+    """Return available (index, name) microphone capture devices."""
+    try:
+        import sounddevice as sd
+
+        devices = sd.query_devices()
+    except Exception:
+        return []
+
+    results: List[Tuple[int, str]] = []
+    for idx, dev in enumerate(devices):
+        if int(dev.get("max_input_channels") or 0) <= 0:
+            continue
+        name = str(dev.get("name") or f"Input #{idx}")
+        low = name.lower()
+        if any(skip in low for skip in ("alsa playback", "zen", "firefox", "chromium")):
+            continue
+        results.append((idx, name))
+    return results
+
+
+def _default_pipewire_source_is_virtual() -> bool:
+    if not shutil.which("wpctl"):
+        return False
+    try:
+        proc = subprocess.run(
+            ["wpctl", "inspect", "@DEFAULT_AUDIO_SOURCE@"],
+            capture_output=True,
+            text=True,
+            timeout=1.0,
+            check=False,
+        )
+        text = (proc.stdout or "").lower()
+        return "rnnoise" in text or "filter-chain" in text or "noise cancel" in text
+    except Exception:
+        return False
+
+
+def pick_best_input_device(preferred: Optional[int]) -> Tuple[Optional[int], str]:
+    """Choose the clearest microphone device, bypassing silent noise-canceling virtual filters."""
+    try:
+        import sounddevice as sd
+
+        devices = sd.query_devices()
+        if preferred is not None and 0 <= preferred < len(devices):
+            if int(devices[preferred].get("max_input_channels") or 0) > 0:
+                return preferred, str(devices[preferred].get("name") or f"Input #{preferred}")
+
+        default_idx = sd.default.device[0] if isinstance(sd.default.device, (list, tuple)) else sd.default.device
+        default_name = ""
+        if isinstance(default_idx, int) and 0 <= default_idx < len(devices):
+            default_name = str(devices[default_idx].get("name") or "")
+
+        prefer_hardware = _default_pipewire_source_is_virtual() or any(
+            tok in default_name.lower() for tok in ("rnnoise", "noise cancel", "default", "pulse", "pipewire")
+        )
+
+        if prefer_hardware:
+            # Prefer a real hardware capture device (Built-in / USB / Mic / Analog) over virtual nodes.
+            hardware_candidates = []
+            for idx, dev in enumerate(devices):
+                if int(dev.get("max_input_channels") or 0) <= 0:
+                    continue
+                name = str(dev.get("name") or "")
+                low = name.lower()
+                if any(tok in low for tok in _VIRTUAL_SOURCE_TOKENS):
+                    continue
+                score = 0
+                if any(k in low for k in ("usb", "headset", "webcam", "mic", "analog", "built-in", "alc", "hda")):
+                    score += 10
+                hardware_candidates.append((score, idx, name))
+            if hardware_candidates:
+                hardware_candidates.sort(key=lambda item: (-item[0], item[1]))
+                _, idx, name = hardware_candidates[0]
+                return idx, name
+
+        if isinstance(default_idx, int) and 0 <= default_idx < len(devices):
+            return default_idx, default_name or f"Input #{default_idx}"
+    except Exception:
+        pass
+    return preferred, "System Default"
 
 
 def _load_token_vocab(tokens_path: Path) -> set[str]:
@@ -39,9 +162,9 @@ def _load_token_vocab(tokens_path: Path) -> set[str]:
 def sensitivity_to_kws_params(sensitivity: float) -> Tuple[float, float]:
     """Map user sensitivity (0.1..1.0) to (boosting_score, trigger_threshold)."""
     s = max(0.1, min(1.0, float(sensitivity)))
-    boost = round(1.0 + s * 1.4, 2)
-    threshold = round(0.55 - s * 0.35, 2)
-    return boost, max(0.12, threshold)
+    boost = round(1.4 + s * 1.3, 2)
+    threshold = round(0.28 - s * 0.18, 2)
+    return boost, max(0.08, min(0.32, threshold))
 
 
 def build_keywords_file(
@@ -68,10 +191,8 @@ def build_keywords_file(
             continue
         seen.add(clean)
         pieces = sp.encode(clean, out_type=str)
-        # Filter/verify against tokens.txt (GigaSpeech BPE uses U+2581 '▁' word markers)
         valid_pieces = [p for p in pieces if p in vocab]
         if not valid_pieces:
-            # Fallback without leading marker if model uses plain characters
             valid_pieces = [p.lstrip("▁") for p in pieces if p.lstrip("▁") in vocab]
         if not valid_pieces:
             raise ValueError(f"Could not tokenize wake phrase '{clean}' against {tokens_path}")
@@ -96,6 +217,8 @@ class WakeWordListener:
         mic_device: Optional[int] = None,
         debounce_s: float = 1.6,
         on_wake: Optional[Callable[[str], None]] = None,
+        on_level: Optional[Callable[[float], None]] = None,
+        on_device: Optional[Callable[[str], None]] = None,
         on_error: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.model_paths = model_paths
@@ -104,6 +227,8 @@ class WakeWordListener:
         self.mic_device = mic_device
         self.debounce_s = debounce_s
         self.on_wake = on_wake
+        self.on_level = on_level
+        self.on_device = on_device
         self.on_error = on_error
 
         self._stop_event = threading.Event()
@@ -111,6 +236,7 @@ class WakeWordListener:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         self._last_trigger = 0.0
+        self.active_device_name = "System Default"
 
     @property
     def is_running(self) -> bool:
@@ -160,9 +286,8 @@ class WakeWordListener:
     def _build_phrases(self) -> List[str]:
         base = " ".join(self.phrase.strip().upper().split()) or "HEY HANDY"
         phrases = [base]
-        # Include helpful close phonetic/ASR spelling if using default phrase
         if base == "HEY HANDY":
-            phrases.append("HEY HAND E")
+            phrases.extend(["HEY HAND E", "HEY HENDY", "EY HANDY", "HEY ANDY"])
         return phrases
 
     def _run_loop(self) -> None:
@@ -202,32 +327,46 @@ class WakeWordListener:
                 self.on_error(f"Failed to initialize wake-word engine: {exc}")
             return
 
+        device_idx, device_name = pick_best_input_device(self.mic_device)
+        self.active_device_name = device_name
+        if self.on_device:
+            self.on_device(device_name)
+
         stream = kws.create_stream()
 
-        # Open microphone at 16 kHz if supported, otherwise fall back to device default rate.
         capture_rate = TARGET_SAMPLE_RATE
         try:
-            sd.check_input_settings(device=self.mic_device, samplerate=TARGET_SAMPLE_RATE, channels=1)
+            sd.check_input_settings(device=device_idx, samplerate=TARGET_SAMPLE_RATE, channels=1)
         except Exception:
             try:
-                info = sd.query_devices(self.mic_device, "input")
+                info = sd.query_devices(device_idx, "input")
                 capture_rate = int(info.get("default_samplerate") or 48000)
             except Exception:
                 capture_rate = 48000
 
         blocksize = max(512, int(capture_rate * 0.08))
+        ema_peak = 0.0
+        last_level_emit = 0.0
 
         def callback(indata: np.ndarray, frames: int, time_info: object, status: object) -> None:
+            nonlocal ema_peak, last_level_emit
             if self._stop_event.is_set() or self._paused:
                 return
             mono = indata[:, 0] if indata.ndim > 1 else indata
             chunk = resample_mono(mono, capture_rate, TARGET_SAMPLE_RATE)
-            stream.accept_waveform(TARGET_SAMPLE_RATE, chunk)
+            boosted, ema_peak = normalize_speech_chunk(chunk, ema_peak)
+
+            now = time.monotonic()
+            if self.on_level and (now - last_level_emit) >= 0.08:
+                last_level_emit = now
+                level = min(1.0, float(np.sqrt(np.mean(boosted * boosted))) * 4.5)
+                self.on_level(level)
+
+            stream.accept_waveform(TARGET_SAMPLE_RATE, boosted)
             while kws.is_ready(stream):
                 kws.decode_stream(stream)
                 result = kws.get_result(stream)
                 if result:
-                    now = time.monotonic()
                     if now - self._last_trigger >= self.debounce_s:
                         self._last_trigger = now
                         kws.reset_stream(stream)
@@ -236,7 +375,7 @@ class WakeWordListener:
 
         try:
             with sd.InputStream(
-                device=self.mic_device,
+                device=device_idx,
                 samplerate=capture_rate,
                 channels=1,
                 dtype="float32",
@@ -247,4 +386,4 @@ class WakeWordListener:
                     pass
         except Exception as exc:
             if self.on_error and not self._stop_event.is_set():
-                self.on_error(f"Microphone stream error: {exc}")
+                self.on_error(f"Microphone stream error ({device_name}): {exc}")

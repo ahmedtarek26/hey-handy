@@ -25,6 +25,8 @@ class AppController(QtCore.QObject):
     previewReady = QtCore.Signal(object)  # PreviewFrame
     errorOccurred = QtCore.Signal(str)
     micPausedChanged = QtCore.Signal(bool)
+    micLevelChanged = QtCore.Signal(float)
+    micDeviceChanged = QtCore.Signal(str)
 
     def __init__(
         self,
@@ -59,6 +61,8 @@ class AppController(QtCore.QObject):
             sensitivity=self.config.wake_sensitivity,
             mic_device=self.config.mic_device,
             on_wake=self._on_wake_word,
+            on_level=lambda lvl: self.micLevelChanged.emit(lvl),
+            on_device=lambda name: self.micDeviceChanged.emit(name),
             on_error=lambda msg: self.errorOccurred.emit(msg),
         )
 
@@ -119,7 +123,7 @@ class AppController(QtCore.QObject):
 
     @QtCore.Slot(bool)
     def set_preview_enabled(self, enabled: bool) -> None:
-        self.cam_worker.set_preview_enabled(enabled)
+        self.cam_worker.set_preview_enabled(enabled, execute_actions=True)
 
     @QtCore.Slot(str)
     def trigger_action(self, action: str) -> None:
@@ -210,7 +214,7 @@ class AppController(QtCore.QObject):
                         label = str(res["label"])
                 else:
                     ok = self.system.fallback_media_action(action)
-                    detail = "System media" if ok else "No active media found"
+                    detail = self.system.last_target_label or ("System media" if ok else "No active media found")
 
             if chime and ok:
                 play_chime("confirm", enabled=self.config.sound_feedback)

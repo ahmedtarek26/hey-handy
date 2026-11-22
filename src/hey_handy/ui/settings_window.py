@@ -1,4 +1,4 @@
-"""Settings, browser extension setup, and live camera test window for Hey Handy."""
+"""Settings, browser extension setup, and live camera/mic test window for Hey Handy."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from ..config import ACTION_LABELS, GESTURE_LABELS, VALID_ACTIONS, HeyHandyConfig
 from ..gesture_engine import PreviewFrame
 from ..models import ensure_models
+from ..wake_word import list_input_devices
 from ..ws_bridge import ExtensionStatus
 
 HAND_CONNECTIONS = (
@@ -70,6 +71,17 @@ QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     padding: 5px 8px;
     color: #f8fafc;
 }
+QProgressBar {
+    background-color: #0f141d;
+    border: 1px solid #334155;
+    border-radius: 5px;
+    height: 10px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background-color: #2dd4bf;
+    border-radius: 4px;
+}
 QCheckBox {
     spacing: 8px;
 }
@@ -115,7 +127,7 @@ QLabel#muted {
 
 
 class SettingsWindow(QtWidgets.QMainWindow):
-    """Configuration & live gesture verification UI (stays hidden during normal use)."""
+    """Configuration, mic meter & live gesture verification UI."""
 
     configSaved = QtCore.Signal(object)  # HeyHandyConfig
     wakeClicked = QtCore.Signal()
@@ -135,8 +147,8 @@ class SettingsWindow(QtWidgets.QMainWindow):
         self._minimize_to_tray = minimize_to_tray
         self._gesture_combos: Dict[str, QtWidgets.QComboBox] = {}
 
-        self.setWindowTitle("Hey Handy — Gestures & Active Tab Control")
-        self.resize(940, 680)
+        self.setWindowTitle("Hey Handy — Gestures & Active Media Control")
+        self.resize(980, 740)
         self.setStyleSheet(DARK_STYLESHEET)
 
         central = QtWidgets.QWidget()
@@ -155,16 +167,33 @@ class SettingsWindow(QtWidgets.QMainWindow):
         # --- Left Top: Live Status & Quick Controls ---
         status_group = QtWidgets.QGroupBox("Live Status && Quick Test")
         status_lay = QtWidgets.QVBoxLayout(status_group)
-        status_lay.setSpacing(8)
+        status_lay.setSpacing(7)
 
         self._state_label = QtWidgets.QLabel("State: Sleeping (say 'Hey Handy')")
         self._state_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #2dd4bf;")
         status_lay.addWidget(self._state_label)
 
-        self._ext_label = QtWidgets.QLabel("Browser Extension: Waiting for connection on ws://127.0.0.1:17421")
+        self._last_action_label = QtWidgets.QLabel("Last action: —")
+        self._last_action_label.setObjectName("muted")
+        status_lay.addWidget(self._last_action_label)
+
+        self._ext_label = QtWidgets.QLabel(
+            "Browser Extension: Not connected (desktop MPRIS + Hyprland fallback active)"
+        )
         self._ext_label.setWordWrap(True)
         self._ext_label.setObjectName("muted")
         status_lay.addWidget(self._ext_label)
+
+        mic_row = QtWidgets.QHBoxLayout()
+        self._mic_status_label = QtWidgets.QLabel("Mic level:")
+        self._mic_status_label.setObjectName("muted")
+        self._mic_bar = QtWidgets.QProgressBar()
+        self._mic_bar.setRange(0, 100)
+        self._mic_bar.setTextVisible(False)
+        self._mic_bar.setValue(0)
+        mic_row.addWidget(self._mic_status_label)
+        mic_row.addWidget(self._mic_bar, 1)
+        status_lay.addLayout(mic_row)
 
         self._model_label = QtWidgets.QLabel(
             "Models: Ready (offline)" if models_ready else "Models: Not downloaded yet"
@@ -207,13 +236,15 @@ class SettingsWindow(QtWidgets.QMainWindow):
         # --- Left Bottom: Optional Camera Test Preview ---
         cam_group = QtWidgets.QGroupBox("Camera && Gesture Tester")
         cam_lay = QtWidgets.QVBoxLayout(cam_group)
-        self._preview_toggle = QtWidgets.QCheckBox("Enable live camera test preview (off during normal eating use)")
+        self._preview_toggle = QtWidgets.QCheckBox(
+            "Enable live camera test preview (runs gestures live while checked)"
+        )
         self._preview_toggle.toggled.connect(self._on_preview_toggled)
         cam_lay.addWidget(self._preview_toggle)
 
         self._preview_view = QtWidgets.QLabel("Camera stays off until you say 'Hey Handy' or enable preview.")
         self._preview_view.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self._preview_view.setMinimumHeight(260)
+        self._preview_view.setMinimumHeight(250)
         self._preview_view.setStyleSheet(
             "background-color: #090b10; border: 1px dashed #2d3748; border-radius: 8px; color: #64748b;"
         )
@@ -232,6 +263,15 @@ class SettingsWindow(QtWidgets.QMainWindow):
         self._phrase_edit = QtWidgets.QLineEdit(config.wake_phrase)
         form.addRow("Wake phrase:", self._phrase_edit)
 
+        self._mic_combo = QtWidgets.QComboBox()
+        self._mic_combo.addItem("Auto (best hardware mic)", None)
+        for dev_idx, dev_name in list_input_devices():
+            self._mic_combo.addItem(f"[{dev_idx}] {dev_name}", dev_idx)
+        m_idx = self._mic_combo.findData(config.mic_device)
+        if m_idx >= 0:
+            self._mic_combo.setCurrentIndex(m_idx)
+        form.addRow("Microphone:", self._mic_combo)
+
         self._sensitivity_spin = QtWidgets.QDoubleSpinBox()
         self._sensitivity_spin.setRange(0.10, 1.00)
         self._sensitivity_spin.setSingleStep(0.05)
@@ -249,6 +289,12 @@ class SettingsWindow(QtWidgets.QMainWindow):
         self._stability_spin.setSuffix(" frames")
         self._stability_spin.setValue(config.stability_frames)
         form.addRow("Hold stability:", self._stability_spin)
+
+        self._conf_spin = QtWidgets.QDoubleSpinBox()
+        self._conf_spin.setRange(0.30, 0.90)
+        self._conf_spin.setSingleStep(0.05)
+        self._conf_spin.setValue(config.min_confidence)
+        form.addRow("Gesture confidence:", self._conf_spin)
 
         self._vol_step_spin = QtWidgets.QSpinBox()
         self._vol_step_spin.setRange(1, 25)
@@ -293,7 +339,7 @@ class SettingsWindow(QtWidgets.QMainWindow):
         # --- Right Bottom: Gesture Mapping ---
         map_group = QtWidgets.QGroupBox("Gesture Mapping")
         map_form = QtWidgets.QFormLayout(map_group)
-        map_form.setSpacing(8)
+        map_form.setSpacing(7)
         for gesture_key, gesture_label in GESTURE_LABELS.items():
             combo = QtWidgets.QComboBox()
             for act in VALID_ACTIONS:
@@ -335,6 +381,19 @@ class SettingsWindow(QtWidgets.QMainWindow):
             self._state_label.setText(f"State: Sleeping — say '{self._phrase_edit.text().title()}'")
             self._state_label.setStyleSheet("font-size: 14px; font-weight: 600; color: #2dd4bf;")
 
+    @QtCore.Slot(str, str, str)
+    def update_last_action(self, _action: str, label: str, detail: str) -> None:
+        text = f"Last action: {label}" + (f" ({detail})" if detail else "")
+        self._last_action_label.setText(text)
+
+    @QtCore.Slot(float)
+    def update_mic_level(self, level: float) -> None:
+        self._mic_bar.setValue(max(0, min(100, int(level * 100))))
+
+    @QtCore.Slot(str)
+    def update_mic_device(self, device_name: str) -> None:
+        self._mic_status_label.setText(f"Mic ({device_name[:28]}):")
+
     @QtCore.Slot(object)
     def update_extension_status(self, status: ExtensionStatus) -> None:
         if status.connected:
@@ -343,7 +402,7 @@ class SettingsWindow(QtWidgets.QMainWindow):
             self._ext_label.setText(f"Browser Extension: Connected ({status.browser or 'Browser'}) — {tab}{kind}")
         else:
             self._ext_label.setText(
-                f"Browser Extension: Not connected (load extension/ folder in Chrome/Firefox; ws://127.0.0.1:{self._config.ws_port})"
+                f"Browser Extension: Not connected (MPRIS & desktop media active; optional extension on ws://127.0.0.1:{self._config.ws_port})"
             )
 
     @QtCore.Slot(object)
@@ -373,12 +432,12 @@ class SettingsWindow(QtWidgets.QMainWindow):
             QtCore.Qt.TransformationMode.SmoothTransformation,
         )
         self._preview_view.setPixmap(scaled)
-        if frame.gesture:
+        if frame.gesture and frame.gesture != "None":
             self._detected_label.setText(
-                f"Detected: {GESTURE_LABELS.get(frame.gesture, frame.gesture)} ({frame.confidence:.0%})"
+                f"Detected (live): {GESTURE_LABELS.get(frame.gesture, frame.gesture)} ({frame.confidence:.0%})"
             )
         else:
-            self._detected_label.setText("Detected: —")
+            self._detected_label.setText("Detected (live): Hand visible — hold a gesture clearly" if frame.landmarks else "Detected (live): —")
 
     def _open_extension_folder(self) -> None:
         ext_dir = Path(__file__).resolve().parents[3] / "extension"
@@ -423,9 +482,11 @@ class SettingsWindow(QtWidgets.QMainWindow):
     def _reset_defaults(self) -> None:
         defaults = HeyHandyConfig()
         self._phrase_edit.setText(defaults.wake_phrase)
+        self._mic_combo.setCurrentIndex(0)
         self._sensitivity_spin.setValue(defaults.wake_sensitivity)
         self._wake_window_spin.setValue(defaults.wake_window_s)
         self._stability_spin.setValue(defaults.stability_frames)
+        self._conf_spin.setValue(defaults.min_confidence)
         self._vol_step_spin.setValue(defaults.volume_step)
         self._vol_mode_combo.setCurrentIndex(0)
         self._camera_spin.setValue(defaults.camera_index)
@@ -450,7 +511,7 @@ class SettingsWindow(QtWidgets.QMainWindow):
             volume_step=self._vol_step_spin.value(),
             volume_mode=str(self._vol_mode_combo.currentData()),
             stability_frames=self._stability_spin.value(),
-            min_confidence=self._config.min_confidence,
+            min_confidence=self._conf_spin.value(),
             min_hand_span=self._config.min_hand_span,
             keep_camera_warm=self._warm_cam_chk.isChecked(),
             always_on_gestures=self._always_on_chk.isChecked(),
@@ -460,7 +521,7 @@ class SettingsWindow(QtWidgets.QMainWindow):
             ws_host=self._config.ws_host,
             ws_port=self._config.ws_port,
             camera_index=self._camera_spin.value(),
-            mic_device=self._config.mic_device,
+            mic_device=self._mic_combo.currentData(),
             gesture_map={k: str(c.currentData()) for k, c in self._gesture_combos.items()},
         ).normalized()
         self._config = cfg

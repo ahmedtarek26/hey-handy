@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from hey_handy.config import DEFAULT_GESTURE_MAP, HeyHandyConfig
-from hey_handy.wake_word import resample_mono, sensitivity_to_kws_params
+from hey_handy.wake_word import normalize_speech_chunk, resample_mono, sensitivity_to_kws_params
 
 
 def test_config_roundtrip_and_sanitization(tmp_path: Path) -> None:
@@ -58,3 +58,26 @@ def test_sensitivity_mapping_monotonic() -> None:
     b_high, th_high = sensitivity_to_kws_params(0.9)
     assert b_high > b_low
     assert th_high < th_low
+
+
+def test_agc_boosts_quiet_speech_and_leaves_silence_alone() -> None:
+    silence = np.full(1280, 0.0005, dtype=np.float32)
+    out_sil, ema = normalize_speech_chunk(silence, 0.0)
+    assert float(np.max(np.abs(out_sil))) < 0.001
+
+    quiet_speech = np.sin(np.linspace(0.0, 20.0, 1280, dtype=np.float32)) * 0.03
+    out_sp, ema2 = normalize_speech_chunk(quiet_speech, ema)
+    assert float(np.max(np.abs(out_sp))) > 0.20
+    assert ema2 >= 0.029
+
+
+def test_v1_config_migrates_strict_thresholds(tmp_path: Path) -> None:
+    cfg_path = tmp_path / "old.json"
+    cfg_path.write_text(
+        '{"min_confidence": 0.58, "stability_frames": 4, "min_hand_span": 0.08}',
+        encoding="utf-8",
+    )
+    loaded = HeyHandyConfig.load(cfg_path)
+    assert loaded.min_confidence == 0.42
+    assert loaded.stability_frames == 3
+    assert loaded.min_hand_span == 0.06
