@@ -28,14 +28,15 @@ def test_mpris_prefers_playing_player_and_remembers_last_paused() -> None:
             return 0, "(<'Playing'>,)" if "firefox" in dest else "(<'Paused'>,)"
         return 0, "()"
 
-    with patch("hey_handy.system_control.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "gdbus" else None):
-        with patch("hey_handy.system_control._run_quiet", side_effect=fake_run):
-            assert sc.fallback_media_action("pause") is True
-            assert sc.last_target_label == "Browser"
-            pause_cmds = [c for c in calls if any("Player.Pause" in part for part in c)]
-            assert len(pause_cmds) == 1
-            assert "org.mpris.MediaPlayer2.firefox.instance_1_5038" in pause_cmds[0]
-            assert "/org/mpris/MediaPlayer2" in pause_cmds[0]
+    with patch("hey_handy.system_control.sys.platform", "linux"):
+        with patch("hey_handy.system_control.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "gdbus" else None):
+            with patch("hey_handy.system_control._run_quiet", side_effect=fake_run):
+                assert sc.fallback_media_action("pause") is True
+                assert sc.last_target_label == "Browser"
+                pause_cmds = [c for c in calls if any("Player.Pause" in part for part in c)]
+                assert len(pause_cmds) == 1
+                assert "org.mpris.MediaPlayer2.firefox.instance_1_5038" in pause_cmds[0]
+                assert "/org/mpris/MediaPlayer2" in pause_cmds[0]
 
 
 def test_hyprland_fullscreen_uses_lua_eval_and_f_for_video_players() -> None:
@@ -52,10 +53,11 @@ def test_hyprland_fullscreen_uses_lua_eval_and_f_for_video_players() -> None:
             return 0, "ok"
         return 0, ""
 
-    with patch("hey_handy.system_control.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "hyprctl" else None):
-        with patch("hey_handy.system_control._run_quiet", side_effect=fake_run):
-            assert sc.fallback_media_action("fullscreen") is True
-            eval_cmds = [" ".join(c) for c in cmds if c[:2] == ["hyprctl", "eval"]]
-            assert any('window = "address:0x123"' in e for e in eval_cmds)
-            assert any('key = "f"' in e for e in eval_cmds)
+    with patch("hey_handy.system_control.sys.platform", "linux"):
+        with patch("hey_handy.system_control.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "hyprctl" else None):
+            with patch("hey_handy.system_control._run_quiet", side_effect=fake_run):
+                assert sc.fallback_media_action("fullscreen") is True
+                eval_cmds = [" ".join(c) for c in cmds if c[:2] == ["hyprctl", "eval"]]
+                assert any('window = "address:0x123"' in e for e in eval_cmds)
+                assert any('key = "f"' in e for e in eval_cmds)
 
